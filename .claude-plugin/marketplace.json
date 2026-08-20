@@ -1,0 +1,16 @@
+{
+  "name": "nouslogic",
+  "owner": { "name": "Nouslogic", "email": "nouslogic.ai@gmail.com" },
+  "description": "Nouslogic internal Claude Code plugins",
+  "plugins": [
+    {
+      "name": "deepseek-invoke",
+      "source": "./plugins/deepseek-invoke",
+      "description": "Plan and verify in Claude while DeepSeek V4 writes the implementation, under a guarded, per-project sandbox.",
+      "version": "1.0.0",
+      "author": { "name": "Nouslogic" },
+      "license": "MIT",
+      "keywords": ["deepseek", "delegation", "codegen"]
+    }
+  ]
+}
