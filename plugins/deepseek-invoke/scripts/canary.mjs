@@ -42,7 +42,10 @@ export function runCanary ({ guardPath, runDir }) {
     } catch (e) {
       return done({ ok: false, detail: `the guard did not block the canary: could not spawn it (${e.code ?? e.message})` })
     }
-    p.stderr.on('data', (c) => { stderr += c })
+    // Cap what we keep: a guard that fails to parse emits a full stack trace,
+    // and burying "this run would be UNGUARDED" under twenty frames of node
+    // internals is how an operator skims past the one line that matters.
+    p.stderr.on('data', (c) => { if (stderr.length < 400) stderr += c })
     // A guard that cannot even be spawned is the loudest version of the bug.
     p.on('error', (e) => done({ ok: false, detail: `the guard did not block the canary: could not spawn it (${e.code ?? e.message})` }))
     p.on('close', (code) => {
@@ -51,7 +54,8 @@ export function runCanary ({ guardPath, runDir }) {
         ok: false,
         detail:
           `the guard did not block the canary (exit ${code}). The harness treats any non-2 exit as ` +
-          `non-blocking, so this run would be UNGUARDED. ${stderr.trim()}`.trim(),
+          `non-blocking, so this run would be UNGUARDED.\n  first stderr line: ` +
+          `${stderr.trim().split('\n')[0] || '(none)'}`,
       })
     })
     p.stdin.on('error', () => {})   // a guard that exits before reading stdin -> EPIPE, not a crash

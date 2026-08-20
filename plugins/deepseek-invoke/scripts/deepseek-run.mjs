@@ -38,6 +38,11 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { discoverSeam, loadMachine, loadRepoPolicy, substituteMachine, MissingMachineKey } from './seam.mjs'
+import { composePolicy } from './policy.mjs'
+import { approvalStore, hashOverlay, isApproved, recordApproval, refusalMessage, summarise } from './approval.mjs'
+import { runCanary, PROBE_PATH } from './canary.mjs'
+
 // The hook generator lives in the same tree, not relative to cwd: the wrapper
 // is invoked from any directory, so `here` is the only stable anchor.
 const here = dirname(fileURLToPath(import.meta.url))
@@ -50,6 +55,14 @@ Usage:
                    [--overlay <file>]... [--no-overlay] "<brief>"
   deepseek-run.mjs [-C <dir>] -f <brief-file>
   cat brief.md | deepseek-run.mjs [-C <dir>]
+  deepseek-run.mjs --approve-overlay -C <dir>    # review and approve .deepseek/overlay.yml
+
+Per-repo capability comes from <repo>/.deepseek/overlay.yml and its deny set
+from <repo>/.deepseek/policy.yml. A repo policy can only ADD denies; the only
+way to lift one is --allow-tool, which never lives in a file.
+
+  --allow-tool <name>   lift one floor/repo deny for this run (repeatable)
+  --approve-overlay     record approval of this repo's overlay, then exit
 `
 
 // A usage error exits 2, never 1: a caller that treats a non-2 exit as "carry
@@ -82,6 +95,8 @@ export function resolveRun (argv) {
   const denyPath = []
   const denyCmd = []
   const denyTool = []
+  const allowTool = []
+  let approveOverlay = false
 
   // Hand-rolled the way the bash `while`/`case` does: node:util parseArgs will
   // not accept a bare positional mixed with options, and it rejects -C-style
@@ -106,6 +121,10 @@ export function resolveRun (argv) {
       case '--deny-path': denyPath.push(req('a glob')); break
       case '--deny-cmd': denyCmd.push(req('a pattern')); break
       case '--deny-tool': denyTool.push(req('a tool name')); break
+      // The ONLY way to lift a deny. Deliberately a flag and not a file: it
+      // lives in a hand and in the session log, so nothing arrives with a clone.
+      case '--allow-tool': allowTool.push(req('a tool name')); break
+      case '--approve-overlay': approveOverlay = true; break
       case '--dry-run': dry = true; break
       case '--dry-run-dir': drydir = req('a path'); break
       case '--max-turns': turns = Number(req('a number')); break
@@ -143,24 +162,59 @@ export function resolveRun (argv) {
     // A missing/unreadable file becomes an empty brief, which then fails the
     // same "no brief" check -- identical to bash's `prompt="$(cat "$file")"`.
     try { prompt = readFileSync(briefFile, 'utf8') } catch { prompt = '' }
-  } else if (prompt === '' && !process.stdin.isTTY) {
-    prompt = readFileSync(0, 'utf8')
+  } else if (prompt === '' && !approveOverlay && !process.stdin.isTTY) {
+    // Reading fd 0 can throw EAGAIN when stdin is a non-blocking pipe with
+    // nothing in it -- which is exactly how this is invoked from a tool
+    // harness. bash's `$(cat)` just yields an empty string there, and an
+    // unhandled EAGAIN crash is a much worse answer than "no brief". Measured
+    // 2026-08-20: `--approve-overlay -C <dir>` died this way.
+    try { prompt = readFileSync(0, 'utf8') } catch { prompt = '' }
   }
-  if (!prompt.trim()) {
+  // --approve-overlay reviews and records; it never runs a delegation, so it is
+  // the one mode that legitimately has no brief.
+  if (!approveOverlay && !prompt.trim()) {
     throw new UsageError('no brief (arg, -f <file>, or stdin)')
   }
 
   return {
     dir, model, backend, frozen, allowTest, allow,
-    overlays, noOverlay, denyPath, denyCmd, denyTool,
+    overlays, noOverlay, denyPath, denyCmd, denyTool, allowTool, approveOverlay,
     dry, drydir, briefFile, prompt, effort, bypass, turns,
   }
 }
 
 // ---------------------------------------------------------------------------
+// Reporting, shared by both backends. Untracked files hide from `git diff`, so
+// `git status --short` is printed too -- without it a migration that adds 146
+// new files reports as "1 file changed".
+// ---------------------------------------------------------------------------
+function reportTree (r) {
+  const git = (args) => spawnSync('git', ['-C', r.dir, ...args], { encoding: 'utf8' }).stdout ?? ''
+  console.log('\n===== Working-tree changes (git status --short) =====')
+  console.log(git(['status', '--short']) || '(clean, or not a git repo)')
+  console.log('===== Diff stat =====')
+  console.log(git(['--no-pager', 'diff', '--stat']))
+  if (r.frozen.length) {
+    console.log('===== FROZEN FILES -- this must be empty =====')
+    console.log(git(['--no-pager', 'diff', '--stat', '--', ...r.frozen]))
+    console.log('(anything above means the contract was edited; that is an automatic bounce)')
+  }
+}
+
+function gitToplevel (dir) {
+  const r = spawnSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' })
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : null
+}
+
+const runReport = (dir) => {
+  const sr = join(here, '..', 'skills', '_delegation', 'scripts', 'session-report.mjs')
+  spawnSync(process.execPath, [sr, dir], { stdio: 'inherit' })
+}
+
+// ---------------------------------------------------------------------------
 // Backend: dsh (default)
 // ---------------------------------------------------------------------------
-function runDsh (r) {
+async function runDsh (r) {
   // The guard MUST live inside the workspace root. Measured 2026-08-15: a guard
   // outside it exits 127 under the sandbox, and a non-2 exit is a NON-BLOCKING
   // error, so every call is allowed and the run only LOOKS guarded.
@@ -171,12 +225,63 @@ function runDsh (r) {
     process.exit(2)
   }
 
-  // The per-repo overlay table (keyed on the git toplevel basename) is
-  // deliberately DELETED in this port. It is replaced, in a later task, by a
-  // .deepseek/ directory discovered at the git toplevel. Only the explicit
-  // --overlay list survives here; --no-overlay has nothing to gate until that
-  // later task re-adds the automatic base/repo overlays.
+  // -------------------------------------------------------------------------
+  // The seam. The per-repo overlay table that used to live here -- keyed on the
+  // git toplevel basename, inside one operator's dotfiles -- is deleted. A
+  // repository now declares its own capability and its own deny set, together.
+  // -------------------------------------------------------------------------
+  const repoRoot = gitToplevel(r.dir) ?? r.dir
+  const seam = discoverSeam(repoRoot)
+  const home = homedir()
   const patchFiles = []
+
+  // 00-base.yml applies to every delegation and is config-only.
+  if (!r.noOverlay) {
+    const base = join(here, '..', 'overlays', '00-base.yml')
+    if (existsSync(base)) patchFiles.push(base)
+  }
+
+  if (seam.overlayPath) {
+    const raw = readFileSync(seam.overlayPath, 'utf8')
+    // Hash the RAW bytes, before substitution: substituting first would make
+    // the hash machine-dependent and re-arm the gate on every machine.
+    const hash = hashOverlay(raw)
+    const store = approvalStore(home)
+
+    if (r.approveOverlay) {
+      console.log(`${seam.overlayPath}\n`)
+      for (const line of summarise(raw)) console.log(`  ${line}`)
+      recordApproval(store, repoRoot, hash)
+      console.log(`\napproved for ${repoRoot}`)
+      console.log('Editing the overlay re-arms this gate, because the hash changes.')
+      process.exit(0)
+    }
+
+    // Capability must never arrive silently with a git clone.
+    if (!isApproved(store, repoRoot, hash)) {
+      console.error(refusalMessage({ overlayPath: seam.overlayPath, overlayText: raw, repoRoot }))
+      process.exit(2)
+    }
+
+    if (!r.noOverlay) {
+      let text
+      try {
+        text = substituteMachine(raw, loadMachine(home))
+      } catch (e) {
+        if (e instanceof MissingMachineKey) { console.error(`deepseek-run: ${e.message}`); process.exit(2) }
+        throw e
+      }
+      // Substitution is textual and the result is what dsh reads, so the
+      // composed copy lands in the run dir where a human can read it back.
+      const composed = join(rundir, 'repo-overlay.yml')
+      writeFileSync(composed, text)
+      patchFiles.push(composed)
+    }
+  } else if (r.approveOverlay) {
+    console.error(`deepseek-run: ${repoRoot} has no .deepseek/overlay.yml to approve`)
+    process.exit(2)
+  }
+
   for (const ov of r.overlays) {
     const resolved = resolve(ov)
     if (!existsSync(resolved)) {
@@ -186,15 +291,36 @@ function runDsh (r) {
     patchFiles.push(resolved)
   }
 
+  // -------------------------------------------------------------------------
+  // Policy: FLOOR union repo policy union CLI denies, minus only what the
+  // OPERATOR lifted. A committed file can tighten and can never loosen.
+  // -------------------------------------------------------------------------
+  let repoPolicy = null
+  try {
+    repoPolicy = loadRepoPolicy(seam.policyPath)
+  } catch (e) {
+    console.error(`deepseek-run: ${e.message}`)
+    process.exit(2)
+  }
+  const pol = composePolicy({
+    repoPolicy,
+    cliDeny: { denyPath: r.denyPath, denyCmd: r.denyCmd, denyTool: r.denyTool },
+    allowTool: r.allowTool,
+  })
+
   // Compose the guard through the hook generator; it writes hooks.json,
   // delegation-guard.mjs and policy.json into the run dir. We never write those
   // ourselves.
   const genArgs = ['--out', rundir, '--dialect', 'dsh']
   for (const f of r.frozen) genArgs.push('--frozen', f)
+  // The canary's probe path is frozen for the WHOLE run, not just the self
+  // test, so the guard stays provably live rather than only having been live
+  // once at startup.
+  genArgs.push('--frozen', PROBE_PATH)
   if (r.allowTest) genArgs.push('--allow-cmd', r.allowTest)
-  for (const g of r.denyPath) genArgs.push('--deny-path', g)
-  for (const p of r.denyCmd) genArgs.push('--deny-cmd', p)
-  for (const t of r.denyTool) genArgs.push('--deny-tool', t)
+  for (const g of pol.denyPath) genArgs.push('--deny-path', g)
+  for (const c of pol.denyCmd) genArgs.push('--deny-cmd', c)
+  for (const t of pol.denyTool) genArgs.push('--deny-tool', t)
   const genHooks = join(here, '..', 'skills', '_delegation', 'scripts', 'gen-hooks.mjs')
   const gen = spawnSync(process.execPath, [genHooks, ...genArgs], {
     stdio: ['ignore', 'ignore', 'inherit'],
@@ -244,41 +370,65 @@ function runDsh (r) {
   for (const f of patchFiles) patchArgs.push('--patch', f)
   patchArgs.push('--patch', join(rundir, 'patch.yml'))
 
-  if (r.dry) {
-    console.error(`>>> deepseek-run: DRY RUN (backend: dsh)  model: ${modelId}  dir: ${r.dir}`)
+  const announce = (prefix) => {
+    console.error(`>>> deepseek-run: ${prefix}  model: ${modelId}  dir: ${r.dir}`)
+    console.error(`>>> repo: ${repoRoot}`)
+    if (seam.overlayPath) console.error(`>>> seam: ${seam.overlayPath} (approved)`)
+    if (seam.policyPath) console.error(`>>> seam: ${seam.policyPath}`)
     if (patchFiles.length) console.error(`>>> overlays: ${patchFiles.join(' ')}`)
-    // A dry run is exactly when you want to read the policy back, so print it
-    // here too rather than only on the live path.
-    if (r.denyPath.length) console.error(`>>> denied paths: ${r.denyPath.join(' ')}`)
-    if (r.denyCmd.length) console.error(`>>> denied commands: ${r.denyCmd.length} patterns`)
-    if (r.denyTool.length) console.error(`>>> denied tools: ${r.denyTool.join(' ')}`)
+    console.error(`>>> denied: ${pol.denyPath.length} paths, ${pol.denyCmd.length} commands, ${pol.denyTool.length} tools (see ${join(rundir, 'policy.json')})`)
+    if (r.allowTool.length) console.error(`>>> OPERATOR LIFTED: ${r.allowTool.join(' ')}`)
+    if (r.frozen.length) console.error(`>>> frozen: ${r.frozen.join(' ')}`)
+    if (r.allowTest) console.error(`>>> only permitted command: ${r.allowTest}`)
+  }
+
+  if (r.dry) {
+    announce('DRY RUN (backend: dsh)')
     console.error(`>>> artifacts: ${rundir}`)
     process.exit(0)
   }
 
-  console.error(`>>> deepseek-run: backend: dsh  model: ${modelId}  dir: ${r.dir}`)
-  if (patchFiles.length) console.error(`>>> overlays: ${patchFiles.join(' ')}`)
-  if (r.denyPath.length) console.error(`>>> denied paths: ${r.denyPath.join(' ')}`)
-  if (r.denyCmd.length) console.error(`>>> denied commands: ${r.denyCmd.length} patterns (see ${join(rundir, 'policy.json')})`)
-  if (r.denyTool.length) console.error(`>>> denied tools: ${r.denyTool.join(' ')}`)
-  if (r.frozen.length) console.error(`>>> frozen: ${r.frozen.join(' ')}`)
-  if (r.allowTest) console.error(`>>> only permitted command: ${r.allowTest}`)
+  // -------------------------------------------------------------------------
+  // The canary. Ask the guard to block something it MUST block, BEFORE spending
+  // anything. A guard that cannot execute exits non-2, which the harness treats
+  // as non-blocking, so the run would look guarded and be entirely unguarded.
+  // Probe the DEPLOYED copy at its deployed path -- that is the file the
+  // harness will actually invoke. There is no flag to skip this.
+  // -------------------------------------------------------------------------
+  const deployedGuard = join(rundir, 'delegation-guard.mjs')
+  const canary = await runCanary({ guardPath: deployedGuard, runDir: rundir })
+  if (!canary.ok) {
+    console.error(`deepseek-run: ABORTED -- ${canary.detail}`)
+    console.error('Nothing has been spent.')
+    process.exit(2)
+  }
+  console.error('>>> canary: the guard blocked its probe; the boundary is live')
 
-  // -------------------------------------------------------------------------
-  // Live launch -- NOT ported yet (task-6b). The tests only exercise
-  // --dry-run and never reach this branch.
+  // `command -v dsh`: spawn failure means it is not on PATH.
+  if (spawnSync('dsh', ['--version'], { stdio: 'ignore' }).error) {
+    console.error('deepseek-run: dsh not on PATH. Install it with:')
+    console.error('  npm i -g @deepseek-ai/dsh   (then symlink it onto PATH if needed)')
+    console.error('Or fall back with: --backend claude-code')
+    process.exit(3)
+  }
+
+  announce('backend: dsh')
+
+  // The Node guard reads policy.json beside itself, so NO DELEGATION_* exports
+  // are needed -- which also takes shell quoting out of the security path.
   //
-  // TODO(task-6b): `command -v dsh` first (exit 3 if missing, with the
-  //   "npm i -g @deepseek-ai/dsh" and "--backend claude-code" hints), then run
-  //   in $dir with DELEGATION_FROZEN / DELEGATION_ALLOW_CMD / DELEGATION_DENY_*
-  //   in the environment and
-  //     env -u DEEPSEEK_API_KEY dsh --profile headless \
-  //       <patchArgs...> "$prompt"
-  //   The `env -u DEEPSEEK_API_KEY` is load-bearing, not hygiene: the inherited
-  //   process environment ALWAYS wins over $DSH_HOME/.credentials.yaml.
-  // -------------------------------------------------------------------------
-  console.error('deepseek-run: live dsh launch is not implemented (task-6b)')
-  process.exit(1)
+  // `env -u DEEPSEEK_API_KEY` is load-bearing, not hygiene: the inherited
+  // process environment ALWAYS wins over $DSH_HOME/.credentials.yaml, so an
+  // exported key would silently bypass the managed store.
+  const env = { ...process.env }
+  delete env.DEEPSEEK_API_KEY
+  const res = spawnSync('dsh', ['--profile', 'headless', ...patchArgs, r.prompt], {
+    cwd: r.dir, env, stdio: ['ignore', 'inherit', 'inherit'],
+  })
+
+  reportTree(r)
+  runReport(r.dir)
+  process.exit(res.status ?? 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -356,17 +506,27 @@ function runClaudeCode (r) {
 
   console.error(`>>> deepseek-run: backend: claude-code  model: ${modelId}  effort: ${r.effort}  perm: ${perm}  dir: ${r.dir}`)
 
-  // TODO(task-6b): launch with `env -u ANTHROPIC_API_KEY` so an inherited
-  //   Anthropic key cannot silently bill Anthropic for work meant to run on
-  //   DeepSeek, spreading <env> over the child, then:
-  //     claude -p "$prompt" --add-dir "$dir" --permission-mode "$perm" \
-  //       --max-turns "$turns" [--allowedTools <allow...>] --output-format json
-  //   with stdout to <logdir>/result.json and stderr to <logdir>/stderr.log.
-  console.error('deepseek-run: live claude-code launch is not implemented (task-6b)')
-  process.exit(1)
+  // ANTHROPIC_API_KEY is CLEARED, not merely overridden: an inherited Anthropic
+  // key would silently bill Anthropic for work meant to run on DeepSeek, and
+  // the failure is a surprising invoice rather than an error.
+  const child = { ...process.env, ...env }
+  delete child.ANTHROPIC_API_KEY
+
+  const args = ['-p', r.prompt, '--add-dir', r.dir, '--permission-mode', perm,
+    '--max-turns', String(r.turns), '--output-format', 'json']
+  if (r.allow.length) args.push('--allowedTools', r.allow.join(','))
+
+  const res = spawnSync('claude', args, { cwd: r.dir, env: child, stdio: ['ignore', 'inherit', 'inherit'] })
+  if (res.error) {
+    console.error('deepseek-run: claude not on PATH; install Claude Code or use --backend dsh')
+    process.exit(3)
+  }
+
+  reportTree(r)
+  process.exit(res.status ?? 1)
 }
 
-function main (argv) {
+async function main (argv) {
   let r
   try {
     r = resolveRun(argv)
@@ -375,11 +535,13 @@ function main (argv) {
     if (e instanceof UsageError) { process.stderr.write(`deepseek-run: ${e.message}\n`); process.exit(2) }
     throw e
   }
-  if (r.backend === 'dsh') runDsh(r)
+  // --approve-overlay is a dsh-seam operation; it has no meaning for the
+  // claude-code backend, which mounts no overlays.
+  if (r.backend === 'dsh') await runDsh(r)
   else runClaudeCode(r)
 }
 
 // Runnable as a script, importable as a module (resolveRun for unit tests).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main(process.argv.slice(2))
+  await main(process.argv.slice(2))
 }
