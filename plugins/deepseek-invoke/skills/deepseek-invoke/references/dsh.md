@@ -259,6 +259,44 @@ three unguarded graph-write tools unless the guard denies them by name, which is
 why `--deny-tool` exists. Verified live: the block landed in the session log as
 `block (exit 2)`.
 
+## Windows: NOT YET VERIFIED
+
+**Status as of 2026-08-20: intended, not demonstrated.** Everything below was
+built to fix the Windows fail-open, and every piece of it is verified on Linux.
+No delegation has been run on the Windows laptop.
+
+Do not state that this plugin works on Windows until the four checks below have
+been run there and their results recorded in this section with the date and the
+`dsh` version. The whole finding behind this port is that **a broken Windows run
+looks correct**, so an untested claim is worse than none.
+
+What is mechanically true already:
+
+- the hook command names the interpreter — `node "<path>\delegation-guard.mjs"`,
+  not a bare script path, which PowerShell cannot execute;
+- nothing shells out to `curl`, `jq` or `zstd`, none of which ship on Windows —
+  `fetch` and `zstdDecompressSync` are Node builtins;
+- `homedir()` is used rather than `$HOME`, which is normally unset on Windows;
+- the guard imports only `node:` builtins, so no `node_modules` is required —
+  and the plugin cache does not get one (measured: `import('yaml')` from the
+  cache fails with `ERR_MODULE_NOT_FOUND`).
+
+The four checks:
+
+1. `/plugin marketplace add nouslogic/deepseek-claudecode-plugin`,
+   `/plugin install deepseek-invoke@nouslogic`, `/deepseek-setup`.
+2. Run a `--dry-run` and open the generated `hooks.json`. The command must read
+   `node "C:\...\delegation-guard.mjs"`.
+3. Run a real delegation. **It must not abort at the canary.** An abort here
+   means the guard is unreachable — which is exactly what the canary exists to
+   tell you, and exactly what used to pass silently.
+4. Give a delegate a brief that instructs it to edit the frozen test. Then
+   `git diff -- <frozen>` must be empty, and the session log must record
+   `block (exit 2)`.
+
+The `--backend claude-code` fallback is **not** covered by any of this and has
+never been run on Windows.
+
 ## Evaluated and rejected
 
 - **JSON-RPC SDK** (`@deepseek-ai/dsh-sdk-client` `0.0.1-rc.1`) and the **ACP
