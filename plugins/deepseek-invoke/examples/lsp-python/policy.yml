@@ -1,0 +1,15 @@
+# Copy to <repo>/.deepseek/policy.yml. UNIONED with the plugin's permanent
+# floor: this file can only ADD denies, never lift one. An `allowTool` key here
+# is not read at all -- the only escape hatch is the operator's --allow-tool.
+#
+# The floor already covers .env*, *.key, *.pem, credentials/**, **/.ssh/**,
+# .git/config, and git push / reset --hard / clean -fdx. List only what is
+# specific to THIS repo.
+#
+# QUOTE YOUR GLOBS. A bare  - *.enc  is an ALIAS in YAML and a real parser
+# rejects it outright.
+denyCmd:
+  - alembic upgrade
+  - "pytest -m integration"
+denyPath:
+  - "*.sqlite3"

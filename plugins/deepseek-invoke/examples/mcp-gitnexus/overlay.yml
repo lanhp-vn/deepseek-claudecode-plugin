@@ -1,0 +1,38 @@
+# Copy to <repo>/.deepseek/overlay.yml ONLY when a task genuinely needs a call
+# graph -- "what breaks if I change this". An LSP answers four questions about a
+# symbol and is not a substitute; DeepSeek Harness ships no graph tool of its
+# own (checked 2026-08-20: 25 tool packages, zero graph hits).
+#
+# READ ALL THREE CAVEATS BEFORE MOUNTING THIS.
+#
+# 1. THERE IS NO PER-REPO SCOPING. The gitnexus MCP server exposes EVERY index
+#    on the machine. A delegate briefed on one private repo can query another's
+#    graph. If that matters -- and across a set of private company repos it
+#    does -- do not mount this; brief the delegate with the answer instead.
+#
+# 2. ITS OWN CONTROLS DO NOTHING. GITNEXUS_MCP_READ_ONLY and
+#    GITNEXUS_MCP_ALLOWED_REPOS are read by NOTHING in gitnexus 1.6.9 -- zero
+#    hits in its dist, verified 2026-08-19 -- even though both appear in some
+#    Claude Code MCP configs. Setting them buys nothing.
+#
+# 3. THE MUTATORS ARE DENIED FOR YOU. gitnexus registers `rename`, `cypher` and
+#    `group_sync`, which MUTATE the graph. Claude Code refuses them via
+#    permissions.deny, but that is a Claude Code mechanism and a dsh delegate
+#    never sees it. The plugin's permanent floor denies all three at the guard,
+#    automatically, whether or not you mount this. You do not need to repeat
+#    them in policy.yml.
+#
+# ${machine.gitnexus_bin} resolves from ~/.deepseek/machine.yml. The binary path
+# is machine-specific, which is exactly why it is not written here.
+- insert:
+    - id: mcp
+      name: '@deepseek-ai/dsh-mcp'
+    - id: mcp-gitnexus
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        servers:
+          gitnexus:
+            command: ${machine.gitnexus_bin}
+            args: ['mcp']
+    - id: tool-mcp
+      name: '@deepseek-ai/dsh-tool-mcp'

@@ -1,0 +1,26 @@
+# Copy to <repo>/.deepseek/overlay.yml for a Python project.
+#
+# An LSP is paid in the prompt prefix of EVERY request, so mount it only when
+# the task is actually Python work. Pass --no-overlay for prose.
+#
+# ${machine.python} resolves from ~/.deepseek/machine.yml, which is per-machine
+# and never committed. Set it there:  python: /path/to/venv/bin/python
+# A key referenced here and missing there is a hard failure naming the key --
+# nothing is spent.
+- insert:
+    - id: lsp
+      name: '@deepseek-ai/dsh-lsp'
+    - id: lsp-stdio
+      name: '@deepseek-ai/dsh-lsp-stdio'
+      config:
+        servers:
+          python:
+            command: pyright-langserver
+            args: ['--stdio']
+            initializationOptions:
+              pythonPath: ${machine.python}
+            extensionToLanguage:
+              .py: python
+              .pyi: python
+    - id: tool-lsp
+      name: '@deepseek-ai/dsh-tool-lsp'
