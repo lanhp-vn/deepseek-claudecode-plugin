@@ -284,10 +284,15 @@ caveats first.
 
 ## Reference files
 
+Read them rather than recalling. Every claim in the first two is dated and
+sourced, because this is a fast-moving API on top of a preview-grade harness.
+
+- `references/dsh.md` — the harness: install, patch rows, permission presets,
+  session-log format, hook-bridge steps, measured costs, and what was evaluated
+  and rejected.
+- `references/deepseek-api.md` — the API: models, endpoints, thinking mode,
+  prices, and the image trap, each with a date and a source.
 - `../_delegation/README.md` — why the guard is Node here, and the differential
   test that stops it drifting from the bash original.
 - `${CLAUDE_PLUGIN_ROOT}/examples/` — `.deepseek/` templates to copy.
 - `${CLAUDE_PLUGIN_ROOT}/README.md` — install, the seam, the floor, maintenance.
-
-This is a fast-moving API on top of a preview-grade harness. Read rather than
-recall; memory goes stale quietly.
