@@ -1,1 +1,0 @@
-{"frozen":["/tmp/guard-Pt3oe8/tests/test_contract.py"],"allowCmd":"","denyPath":[],"denyCmd":["adb * shell reboot","*adb*shell rm*","*scripts/demos/*"],"denyTool":[]}

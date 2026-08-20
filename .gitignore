@@ -1,2 +1,6 @@
 node_modules/
 .delegation-run/
+# policy.json is written per run into the run dir by gen-hooks, and beside the
+# source guard only by the test harness (GUARD_POLICY). Never a tracked file:
+# a stale one would describe a policy nobody chose.
+policy.json
