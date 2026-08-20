@@ -1,3 +1,18 @@
+<!-- VENDORED -- do not edit here
+  upstream repo:   git@github.com:lanhp-vn/ubuntu-setup.git
+  upstream path:   skills/_delegation/references/briefing.md
+  upstream commit: ff9a4d4
+  vendored:        2026-08-20
+
+  This file is a VERBATIM copy. Edit it upstream and re-run
+  scripts/vendor-delegation.mjs; edits made here are drift, and
+  vendor-delegation.mjs --check will fail.
+
+  The scripts under scripts/ are NOT verbatim -- they are Node ports of bash
+  originals, checked behaviourally by differential.test.mjs rather than by
+  hash. README.md here is plugin-authored for the same reason.
+-->
+
 # Briefing an implementer
 
 Shared by `codex-invoke` and `deepseek-invoke`. (`agy-invoke` briefs an

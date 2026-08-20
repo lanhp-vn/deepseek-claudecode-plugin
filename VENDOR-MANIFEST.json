@@ -1,0 +1,10 @@
+{
+  "vendoredFrom": "git@github.com:lanhp-vn/ubuntu-setup.git",
+  "upstreamCommit": "ff9a4d4",
+  "vendoredOn": "2026-08-20",
+  "prose": {
+    "references/routing.md": "sha256:190cc48cd36dbf0eba859fa5b8abf3e6d8e85434dc7e619426205cf39956e240",
+    "references/briefing.md": "sha256:512538e7887ef03d9980a2971cb16b387a069b411367b917c2afc0c0cbed2559",
+    "references/verification.md": "sha256:81b7bb8c902e7eeb9ada1323ca69aa274e28d142cda03d090ca2f155f5f8e8ec"
+  }
+}
