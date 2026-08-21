@@ -1,0 +1,9 @@
+# 00-base.yml — applied to EVERY delegation, after the wrapper's own patch.yml.
+# Config-only: requires no plugin install.
+
+# One billed LLM request per run exists purely to name the session
+# (`session/title-llm-request`). In one-shot headless delegation nothing ever
+# reads that title. Disabling it degrades to `- id: session-title`, still
+# mounted, which derives a deterministic 5-word title with no request.
+- id: session-title-llm
+  disabled: true

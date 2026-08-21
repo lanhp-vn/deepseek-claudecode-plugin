@@ -1,0 +1,5 @@
+# Copy to <repo>/.deepseek/policy.yml. Adds to the permanent floor; cannot lift.
+denyCmd:
+  - npm publish
+  - "npm install"
+  - yarn publish

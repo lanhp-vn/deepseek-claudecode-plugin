@@ -1,0 +1,13 @@
+# Copy to <repo>/.deepseek/policy.yml alongside the gitnexus overlay.
+#
+# The three graph MUTATORS -- mcp__gitnexus__rename, __cypher, __group_sync --
+# are already in the plugin's permanent floor and are denied on every run
+# whether or not this file exists. They are NOT repeated here, deliberately:
+# a deny that looks local but is actually global invites someone to "clean it
+# up" from this file and believe they have changed something.
+#
+# What belongs here is whatever ELSE this repo wants denied while a graph is
+# mounted. The index itself is a good candidate: it is machine state, not
+# source, and a delegate has no reason to write it.
+denyPath:
+  - ".gitnexus/**"

@@ -1,0 +1,16 @@
+{
+  "name": "dsh",
+  "owner": { "name": "Lan Pham", "email": "phamhoanglanhb@gmail.com" },
+  "description": "Claude plans and verifies while DeepSeek V4 writes the code, under a guarded sandbox.",
+  "plugins": [
+    {
+      "name": "dsh",
+      "source": "./plugins/dsh",
+      "description": "Plan and verify in Claude while DeepSeek V4 writes the implementation, under a guarded, per-project sandbox.",
+      "version": "2.1.2",
+      "author": { "name": "Lan Pham", "email": "phamhoanglanhb@gmail.com" },
+      "license": "MIT",
+      "keywords": ["deepseek", "delegation", "codegen"]
+    }
+  ]
+}
