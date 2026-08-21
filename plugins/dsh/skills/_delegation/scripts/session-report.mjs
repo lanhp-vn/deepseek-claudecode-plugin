@@ -37,6 +37,16 @@ import { homedir } from 'node:os'
 const note = (s) => process.stderr.write(`${s}\n`)
 const out = (s) => process.stdout.write(`${s}\n`)
 
+// Paths are normalised to `/` ONCE, here, rather than each site below learning
+// about separators -- the same boundary rule as delegation-guard.mjs.
+// Measured 2026-08-21 on Windows: the report header split a log path on `/`,
+// but $DSH_HOME paths arrive with backslashes and contain no `/` at all, so the
+// heading read "What the delegate actually did (undefined)" on every Windows run.
+const slash = (p) => String(p ?? '').split('\\').join('/')
+
+/** The `session-<uuid>` directory holding the log -- the most useful label for it. */
+export const sessionLabel = (p) => slash(p).split('/').slice(-2, -1)[0] ?? '(unknown session)'
+
 /** Newest session.jsonl.zstd anywhere under sessions/, by mtime. */
 export function findNewestLog (sessionsDir) {
   if (!existsSync(sessionsDir)) return null
@@ -118,7 +128,7 @@ export function readEvents (logPath) {
 export function report (events, logPath) {
   const of = (t) => events.filter((e) => e?.type === t).map((e) => e?.data ?? {})
 
-  out(`===== What the delegate actually did (${logPath.split('/').slice(-2, -1)[0]}) =====`)
+  out(`===== What the delegate actually did (${sessionLabel(logPath)}) =====`)
   const calls = of('tool/call')
   if (!calls.length) out('  (no tool calls recorded)')
   for (const c of calls) {
