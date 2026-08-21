@@ -1,8 +1,8 @@
 <!-- VENDORED -- do not edit here
   upstream repo:   git@github.com:lanhp-vn/ubuntu-setup.git
   upstream path:   skills/_delegation/references/verification.md
-  upstream commit: ff9a4d4
-  vendored:        2026-08-20
+  upstream commit: 1ee61e7
+  vendored:        2026-08-21
 
   This file is a VERBATIM copy. Edit it upstream and re-run
   scripts/vendor-delegation.mjs; edits made here are drift, and

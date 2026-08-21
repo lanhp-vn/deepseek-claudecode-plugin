@@ -1,8 +1,8 @@
 <!-- VENDORED -- do not edit here
   upstream repo:   git@github.com:lanhp-vn/ubuntu-setup.git
   upstream path:   skills/_delegation/references/briefing.md
-  upstream commit: ff9a4d4
-  vendored:        2026-08-20
+  upstream commit: 1ee61e7
+  vendored:        2026-08-21
 
   This file is a VERBATIM copy. Edit it upstream and re-run
   scripts/vendor-delegation.mjs; edits made here are drift, and
@@ -84,13 +84,43 @@ Two failure modes worth knowing before you trust a guarded run:
 
 - **It fails OPEN.** Only exit 2 blocks. A guard that cannot execute exits 127,
   which the harness treats as a non-blocking error and allows the call. A run can
-  look guarded in its config and be completely unguarded. `deepseek-run.sh`
-  generates the guard inside the workspace for this reason, and the run report
-  warns when any hook exits with neither 0 nor 2.
+  look guarded in its config and be completely unguarded. Both wrappers generate
+  the guard INSIDE the workspace for this reason, and the run report warns when
+  any hook exits with neither 0 nor 2. The `deepseek-invoke` plugin goes further
+  and aborts the run unless a canary proves the guard blocks — worth copying if
+  the bash path is ever rebuilt.
 - **It only knows the tool names you gave it.** Codex writes files through
   `apply_patch`, not `write`/`edit`; a matcher missing `apply_patch` blocked
   nothing on Codex while working perfectly on dsh. Enumerate a delegate's real
   tool names with a `.*` logging hook before trusting any matcher.
+
+## Say plainly that `cd` is refused
+
+The guard rejects any shell control operator, so `cd <dir> && <cmd>` is refused
+even when `<cmd>` is the whitelisted one. A brief that says "run it from the
+repo root" invites exactly that shape, and the delegate cannot see why it is
+being blocked.
+
+Measured 2026-08-20: a `pro` run spent **51,180 reasoning tokens** bouncing off
+`cd X && node --test` before it wrote anything. Its working directory was
+already the workspace root the whole time.
+
+So write the command as the delegate must type it, and say the rest out loud:
+
+```
+Make this pass:
+
+    node --test tests/frozen.test.mjs
+
+Your working directory is already the repository root. Do NOT use `cd` -- only
+the bare command above is permitted, and any shell operator (`&&`, `;`, `|`)
+is refused.
+```
+
+The same applies to anything the delegate might reach for reflexively and get
+blocked on: `git status`, `git diff`, piping into `head`. If it needs one of
+those to do the job, whitelist it deliberately; otherwise say it is unavailable
+so the delegate stops trying.
 
 ## Bouncing
 

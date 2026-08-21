@@ -1,9 +1,29 @@
+<!-- VENDORED -- do not edit here
+  upstream repo:   git@github.com:lanhp-vn/ubuntu-setup.git
+  upstream path:   skills/_delegation/references/routing.md
+  upstream commit: 1ee61e7
+  vendored:        2026-08-21
+
+  This file is a VERBATIM copy. Edit it upstream and re-run
+  scripts/vendor-delegation.mjs; edits made here are drift, and
+  vendor-delegation.mjs --check will fail.
+
+  The scripts under scripts/ are NOT verbatim -- they are Node ports of bash
+  originals, checked behaviourally by differential.test.mjs rather than by
+  hash. README.md here is plugin-authored for the same reason.
+-->
+
 # Which delegate gets this task
 
 One home for the routing decision. `agy-invoke`, `codex-invoke` and
 `deepseek-invoke` all cite this file rather than restating it, because three
 copies of a routing table drift and the drift is invisible until two skills
 contradict each other.
+
+`deepseek-invoke` has been a Claude Code plugin since 2026-08-20 rather than a
+sibling directory here; the routing decision below is unchanged by that. This
+file is vendored into the plugin and hash-checked, so edit it HERE and re-run
+the plugin's `scripts/vendor-delegation.mjs` — an edit made over there is drift.
 
 ## The table
 
