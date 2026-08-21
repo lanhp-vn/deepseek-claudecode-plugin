@@ -145,6 +145,13 @@ pytest` blocks the one command the delegate is permitted to run. Before adding a
 path deny, read it against the `--allow-test` command: if the literal appears
 there, the two rules are in conflict and the path deny wins.
 
+The nastier form: the literal can collide with the **workspace path itself**. In
+a checkout called `docs-site-iter2`, the obvious `denyPath: ["site/**"]` for the
+mkdocs build directory blocked every command naming a file in the repo — the
+segment `site` appears in the directory name. Test a proposed deny against the
+real guard before committing it; a path deny that reads as tidy housekeeping can
+take the whole run down.
+
 ## Pass 4 — propose, then write
 
 Show the exact bytes of each file and the exact commands, then ask. On yes:
