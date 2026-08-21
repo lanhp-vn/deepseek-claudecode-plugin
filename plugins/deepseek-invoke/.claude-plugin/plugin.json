@@ -1,6 +1,6 @@
 {
   "name": "deepseek-invoke",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Plan and verify in Claude while DeepSeek V4 writes the implementation.",
   "author": { "name": "Nouslogic" }
 }

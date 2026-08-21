@@ -7,7 +7,7 @@
       "name": "deepseek-invoke",
       "source": "./plugins/deepseek-invoke",
       "description": "Plan and verify in Claude while DeepSeek V4 writes the implementation, under a guarded, per-project sandbox.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": { "name": "Nouslogic" },
       "license": "MIT",
       "keywords": ["deepseek", "delegation", "codegen"]
