@@ -1,39 +1,39 @@
 # dsh — a Nouslogic Claude Code plugin
 
-Claude plans, specifies and verifies. **DeepSeek V4 writes the implementation**,
-inside a sandbox, under a guard that refuses to start unless it can prove it is
-working.
+Claude plans, specifies and verifies. **DeepSeek V4 writes the code** — inside a
+sandbox, behind a guard that refuses to start unless it can prove it blocks.
 
 ```
-/plugin marketplace add git@github.com:nouslogic/deepseek-claudecode-plugin.git
+      YOU
+       │  "implement this spec"
+       ▼
+ ┌───────────────┐   brief + frozen test   ┌──────────────────────┐
+ │    CLAUDE     │ ──────────────────────► │     DeepSeek V4      │
+ │ plans, specs, │                         │   writes the code    │
+ │    verifies   │ ◄────────────────────── │  in a write-sandbox  │
+ └───────┬───────┘   diff + session log    └──────────┬───────────┘
+         │                                            │ every tool call
+         ▼                                 ┌──────────▼───────────┐
+  you read the diff,                       │  guard (PreToolUse)  │
+  not the delegate's                       │    allow / BLOCK     │
+  summary                                  └──────────────────────┘
+```
+
+Two things here are called `dsh`, and they are not the same:
+
+| | |
+|---|---|
+| `/dsh:…` **with the colon** | this plugin's five commands |
+| bare `dsh` | the DeepSeek Harness CLI it drives, installed separately below |
+
+---
+
+## Install
+
+```
+/plugin marketplace add nouslogic/deepseek-claudecode-plugin
 /plugin install dsh@nouslogic
-/dsh:setup
-/dsh:test
 ```
-
-`/dsh:test` is the one to run before trusting a fresh install, and again after
-every update: it composes a real run, probes the deployed guard through the
-shell dsh will use, then spends about a cent on a delegation briefed to attempt
-two calls the guard must refuse. Every fail-open this plugin exists to fix
-looked perfect in the config, and one of them was found by that check on its
-first run. `/dsh:update` checks the four upstreams that move independently;
-`/dsh:tools-check` fits a repository's `.deepseek/` seam to what it actually is.
-
-Two things are called `dsh` here and they are not the same. `/dsh:setup` and
-`/dsh:run`, with the colon, are this plugin's commands. Bare `dsh` is the
-DeepSeek Harness CLI the plugin drives, installed separately below.
-
-**Upgrading from `deepseek-invoke` (1.0.1 and earlier):** the plugin was renamed
-in 2.0.0, and a plugin's name is its cache directory, so the old install cannot
-be upgraded in place. Run `/plugin uninstall deepseek-invoke@nouslogic`, then
-install as above. Your credentials are untouched — they live in `~/.deepseek/`
-and `$DSH_HOME`, not in the plugin cache, so there is no need to re-run setup.
-
-If the marketplace add fails and you want the clone kept for inspection, set
-`CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` first.
-
-Requires **Node `^22.19.0 || >=24`** and, for the default backend,
-[`dsh`](https://github.com/deepseek-ai/deepseek-harness):
 
 ```sh
 npm i -g @deepseek-ai/dsh                      # the harness
@@ -41,69 +41,98 @@ npm i -g pnpm                                  # needed by `dsh plugin ... add`
 dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-ai/dsh-hook-protocol
 ```
 
-**That third line is not optional.** A bare `dsh` install ships neither package,
-and the wrapper mounts the guard by inserting a row naming the first one — dsh
-exits 1 at boot with `Cannot find package` when it is missing, so *every*
-delegation fails rather than some. `dsh-hook-protocol` is its peerDependency,
-which pnpm does not install on its own. `--verify-only` checks for both and
-names what is missing.
-
-The plugin itself has **no runtime dependencies** — nothing to install, nothing
-that can be missing. That is deliberate: Claude Code does *not* install a
-plugin's node dependencies into its cache (verified 2026-08-20 — `import('yaml')`
-from the cache fails with `ERR_MODULE_NOT_FOUND`).
-
-Full walkthrough, and a prompt that installs and configures this for you:
-[`ONBOARDING.md`](ONBOARDING.md).
-
-## Why this exists in Node
-
-dsh runs command hooks through `ctx.shell`, which is **PowerShell on Windows**.
-The original guard was a `.sh` file. PowerShell cannot execute it, so the hook
-exited with a non-2 code — and the hook protocol says *"Exit 2 blocks with
-stderr; other failures are non-blocking."*
-
-So on Windows, `hooks.json` looked correct and **every protection was off, on
-every run**. A `.ps1` twin was rejected: two implementations of a security
-boundary drift, and a guard that disagrees with itself across platforms is worse
-than an absent one, because it gets trusted. Everything is Node, which adds no
-prerequisite — `dsh` *is* Node.
-
-`skills/_delegation/scripts/differential.test.mjs` feeds this guard and the bash
-original the same payloads and fails if they ever disagree.
-
-Porting to Node closed that hole and did not close the *class*. Measured
-2026-08-20, with the Node guard in place: dsh names its shell tool `pwsh` on
-Windows and `bash` elsewhere, the generated matcher listed only `bash`/`Bash`,
-and so a hook that existed, ran, and passed its own canary never fired for one
-shell call — 6 tool calls, 3 hook invocations, `--allow-test` unenforced.
-**A tool absent from the matcher is a rule that is silently off**, no matter how
-carefully the guard handles it; `hooks-matcher.test.mjs` now fails if the matcher
-and the guard's switch disagree. Two more Windows traps sat in the wrapper and
-merely stopped runs dead rather than weakening them: `spawnSync` on a bare
-npm-installed CLI name is ENOENT there (no `.exe`, and Node does no PATHEXT
-resolution), and a Windows path in a *double*-quoted YAML scalar makes the
-backslash open an escape.
-
-## Per-project capability: the `.deepseek/` seam
-
-A repository declares what its delegations may use, and the deny set that bounds
-it, in two committed files:
-
 ```
-<repo>/.deepseek/overlay.yml   what the delegate may USE  (a dsh patch layer)
-<repo>/.deepseek/policy.yml    what it may NOT do         (deny sets)
-~/.deepseek/machine.yml        this machine's paths       (never committed)
+/dsh:setup     # your API key
+/dsh:test      # prove the guard blocks — do not skip this
 ```
 
-Both are optional. A repository with no `.deepseek/` gets the base composition
-plus the permanent floor — a working configuration, not a degraded one. Copy a
-starting point from `examples/`.
+> [!IMPORTANT]
+> **That third `npm`/`dsh` line is not optional.** A bare `dsh` install ships
+> neither package. The plugin mounts its guard by naming the first one, so
+> without them dsh exits at boot with `Cannot find package` and *every*
+> delegation fails. `dsh-hook-protocol` is a peerDependency that pnpm will not
+> pull in on its own.
 
-Worked example — a Python repo that wants a language server:
+| | |
+|---|---|
+| **Node** | `^22.19.0 \|\| >=24` |
+| **Claude Code** | `>= 2.1.233` |
+| **A DeepSeek key** | [platform.deepseek.com](https://platform.deepseek.com/api_keys) — pay-as-you-go, **no free tier** |
+| **Runtime deps** | none, deliberately. Nothing to `npm install`, nothing that can go missing |
+
+- The marketplace and repo are private — your GitHub account needs `nouslogic` access.
+- Add failed and you want the clone kept? Set `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` first.
+- **Upgrading from `deepseek-invoke` (1.0.1 or earlier)?** The plugin was renamed
+  in 2.0.0 and a plugin's name is its cache directory, so run
+  `/plugin uninstall deepseek-invoke@nouslogic` first. Your key is untouched — it
+  lives in `~/.deepseek/`, not in the plugin cache, so there is no need to re-run setup.
+
+Full walkthrough, and a prompt that installs and configures all of this for you:
+**[`ONBOARDING.md`](ONBOARDING.md)**.
+
+---
+
+## The five commands
+
+| Command | What it does |
+|---|---|
+| `/dsh:setup` | Installs and verifies your API key; scaffolds `~/.deepseek/machine.yml` |
+| `/dsh:run` | The delegation itself — Claude briefs, DeepSeek writes, Claude verifies |
+| `/dsh:test` | Proves the guard really blocks. One real delegation, **about a cent** |
+| `/dsh:tools-check` | Reads *this* repo and fits its `.deepseek/` seam to what it actually is |
+| `/dsh:update` | Checks the four upstreams that move independently, then re-tests |
+
+**When to run `/dsh:test`:** after install, after every update, after touching the
+guard, and on any machine where a delegation has not run before.
+
+It spends money because it has to. Every fail-open this plugin exists to fix
+looked perfect in the configuration and passed every check that spent nothing —
+including one found by `/dsh:test` itself, on its first ever run.
+
+---
+
+## What a run actually does
+
+```
+/dsh:run  ──►  compose  ──►  approve?  ──►  canary  ──►  delegate writes  ──►  report
+                  │             │             │                                  │
+        overlay + policy   first sight    proves the guard             tool calls, guard
+        + machine.yml      of a repo's    really blocks —              decisions, tokens,
+                           overlay        else ABORT,                  and the log path
+                           stops the run  nothing spent
+```
+
+Two gates stand between a clone and a spend:
+
+| Gate | Stops | Why |
+|---|---|---|
+| **Approval** | the first run against a repo's `overlay.yml` | capability must never arrive silently with a `git clone`. The run prints what the file would mount and spends nothing |
+| **Canary** | any run whose deployed guard does not discriminate | the harness treats a guard that cannot execute as *non-blocking* — it allows the call. A broken guard looks identical to a working one in the config |
+
+Approval is hashed over the file's raw bytes and keyed by absolute path: two
+clones are two decisions, and editing the overlay re-arms the gate.
+
+> [!WARNING]
+> There is **no flag to skip the canary**, and none should be added.
+
+---
+
+## What a repo declares for itself: the `.deepseek/` seam
+
+```
+<repo>/.deepseek/overlay.yml    what a delegate may USE     committed
+<repo>/.deepseek/policy.yml     what it may NOT do          committed
+~/.deepseek/machine.yml         this machine's paths        NEVER committed
+```
+
+Both repo files are optional. **A repo with no `.deepseek/` gets a working
+configuration**, not a degraded one. Starting points live in
+[`plugins/dsh/examples/`](plugins/dsh/examples).
+
+A Python repo that wants a language server:
 
 ```yaml
-# myrepo/.deepseek/overlay.yml   (committed)
+# myrepo/.deepseek/overlay.yml            (committed)
 - insert:
     - id: lsp-stdio
       name: '@deepseek-ai/dsh-lsp-stdio'
@@ -117,150 +146,65 @@ Worked example — a Python repo that wants a language server:
 ```
 
 ```yaml
-# ~/.deepseek/machine.yml        (per-machine, NEVER committed)
+# ~/.deepseek/machine.yml                 (yours, never committed)
 python: /home/you/venvs/myrepo/bin/python
-```
 
-```yaml
-# myrepo/.deepseek/policy.yml    (committed)
+# myrepo/.deepseek/policy.yml             (committed)
 denyCmd:
   - alembic upgrade
 ```
 
-A `${machine.*}` key referenced but not set is a **hard failure naming the key**,
-before anything is spent — never an empty string, which would mount a server
-with a blank command and fail silently.
+- A `${machine.*}` key referenced but not set is a **hard failure naming the
+  key**, before anything is spent — never a blank that mounts a dead server.
+- **Quote your globs.** `- *.enc` is a YAML *alias* and a real parser rejects it.
+  Write `- "*.enc"`.
+- Not sure what your repo needs? `/dsh:tools-check` measures it and proposes the
+  files, writing nothing until you agree.
 
-**Quote your globs.** `- *.enc` is an *alias* in YAML and a real parser rejects
-it. Write `- "*.enc"`.
+---
 
-## Two rules that make a committed file safe to read
+## What a delegate can never do
 
-**A repo policy can only ADD denies.** `policy.yml` is unioned with a permanent
-floor and can never subtract from it; an `allowTool` key in a repo file is not
-read at all. Otherwise "clone this repo and delegate in it" would be a way to
-hand a delegate capability nobody granted. The only escape hatch is the
-operator's `--allow-tool`, which lives in a hand and in the session log.
+A repo's `policy.yml` is **unioned** with a permanent floor and can only ever
+**ADD** denies. An `allowTool` key in a committed file is not read at all —
+otherwise "clone this repo and delegate in it" would hand a delegate capability
+nobody granted. The only escape hatch is the operator's own `--allow-tool` flag,
+which lives in a hand and in the session log.
 
-The floor denies:
+The floor denies, always:
 
 | | |
 |---|---|
-| tools | the gitnexus graph mutators; `cordis_*`, which executes dynamic packages in the live runtime |
-| paths | `.env*`, `*.key`, `*.pem`, `credentials/**`, `**/.ssh/**`, `.git/config` |
-| commands | `git push`, `git push --force`, `git reset --hard`, `git clean -fdx` |
+| **tools** | the gitnexus graph mutators; `cordis_*`, which executes dynamic packages in the live runtime |
+| **paths** | `.env*`, `*.key`, `*.pem`, `credentials/**`, `**/.ssh/**`, `.git/config` |
+| **commands** | `git push`, `git push --force`, `git reset --hard`, `git clean -fdx` |
 
-**Capability never arrives silently with a clone.** The first time a given
-`overlay.yml` is seen at a given path, the run refuses and prints what the file
-would mount:
+---
 
-```
-REFUSED: /repo/.deepseek/overlay.yml is not approved on this machine.
+## What the guard does *not* do
 
-  It would mount:
-    + lsp-stdio (@deepseek-ai/dsh-lsp-stdio)
-      uses ${machine.python} from ~/.deepseek/machine.yml
+It blocks the direct route. **It is not a boundary.**
 
-  Review the file, then approve it:
-    deepseek-run --approve-overlay -C /repo
+- A delegate allowed to run a command that executes project code — `pytest`
+  reading `conftest.py`, `npm test`, `make` — can have *that code* edit a frozen
+  file. One did exactly this, then deleted the helper.
+- The sandbox confines **writes only**. Reads and network are not confined.
+- `git diff -- <frozen>` is what actually holds. The guard buys cost and an
+  audit trail.
 
-  Nothing has been spent.
-```
+**After every delegation:** `git status --short` *alongside* `git diff` —
+untracked files hide from the diff — then read the run report's guard-health
+line.
 
-The hash is over the raw bytes before substitution, so it is machine-independent,
-and it is keyed by absolute path — two clones are two decisions. Editing the
-overlay re-arms the gate.
+---
 
-`--no-overlay` bypasses the gate, because it mounts nothing out of the file and
-so acquires no capability to consent to. It does **not** bypass the deny set:
-the floor and the repo's `policy.yml` apply to every run either way. Without
-this, editing an overlay re-armed the gate for prose delegations too, and the
-documented cheap path for a docs-dominant repo was blocked behind approving a
-language server that run would never load.
+## Contributing
 
-It is for skipping *a repo's overlay*, though — not a habit for prose. It also
-drops the plugin's own `overlays/00-base.yml`, whose only content disables the
-billed session-title request, so in a repository that has no `overlay.yml` the
-flag mounts exactly the same tools and costs one extra request per run
-(measured 2026-08-21).
-
-## The canary
-
-Only exit 2 blocks a tool call. A guard that cannot execute exits 127, which the
-harness treats as a non-blocking error and **allows the call**. Measured
-2026-08-15: a guard placed outside the sandboxed workspace exited 127 and every
-decision came back `pass`, while the config looked perfect.
-
-So before anything is spent, the wrapper asks the deployed guard to block
-something it must block. If it does not, the run aborts:
-
-```
-deepseek-run: ABORTED -- the guard did not block the canary (exit 1). The
-harness treats any non-2 exit as non-blocking, so this run would be UNGUARDED.
-Nothing has been spent.
-```
-
-**There is no flag to skip it, and none should be added.** It is the check that
-would have caught both that incident and the Windows fail-open.
-
-**It has to probe the real path, and it has to probe twice.** Both lessons were
-paid for on 2026-08-20:
-
-- It used to spawn `node <guard>` directly. dsh runs hooks **through
-  PowerShell**, which does not adopt a native command's exit code — so the guard
-  exited 2, the hook process exited 1, every block was delivered as an allow, and
-  the canary reported the boundary live because its own spawn never crossed the
-  shell. It now runs the exact command from the generated `hooks.json`, through
-  the shell dsh will use.
-- It used to probe only a call that must be **blocked**. The Windows hook form is
-  fail-closed, so a guard that is missing, unparseable or policy-less blocks
-  *everything* and passes a block-only probe while being non-functional. It now
-  also probes a call that must be **allowed**.
-
-That second point changes a behaviour: a guard with no `policy.json` used to read
-as a live boundary, because it fails closed. It now aborts. Safe but useless is
-still a failure — such a guard refuses every tool call, so you pay for a run in
-which the delegate can do nothing.
-
-The independent cross-check, still worth doing, is in the run report: the
-guard-decision count should match the matched tool-call count, and calls slipping
-past unhooked show up as a disagreement.
-
-## What the guard does not do
-
-It blocks the direct route. It is not a boundary. A delegate allowed to run a
-command that executes project code — `pytest` reading `conftest.py`, `npm test`,
-`make` — can have *that* code edit a frozen file. One did exactly that, then
-deleted the helper. `git diff -- tests/` caught it in one command.
-
-**The diff is what holds.** The guard raises the cost and leaves an audit trail.
-
-## Maintenance
-
-The harness source is vendored as a reference submodule and is **not needed to
-install or use the plugin** — it sits outside `plugins/`, so Claude Code never
-copies it into anyone's plugin cache, and an ordinary clone leaves it empty.
-Maintainers who want it:
-
-```bash
-git submodule update --init references/deepseek-harness
-```
-
-Run the tests before changing anything under `skills/_delegation/`. Both script
-directories, from the repo root — `hooks-matcher.test.mjs` lives in the second
-one and is what catches a guard rule going silently off:
+Everything about working *on* this code — architecture, the invariants, the
+Windows hazards, the test discipline — is in **[`CLAUDE.md`](CLAUDE.md)**.
 
 ```bash
 node --test plugins/dsh/scripts/*.test.mjs plugins/dsh/skills/_delegation/scripts/*.test.mjs
-```
-
-The differential needs both implementations named, and skips on Windows because
-there is no bash reference there:
-
-```bash
-cd plugins/dsh/skills/_delegation/scripts && \
-  BASH_GUARD=~/Documents/system-settings/skills/_delegation/scripts/delegation-guard.sh \
-  NODE_GUARD=$PWD/delegation-guard.mjs node --test differential.test.mjs
 ```
 
 Private to Nouslogic.

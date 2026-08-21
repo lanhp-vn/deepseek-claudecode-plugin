@@ -393,4 +393,8 @@ sourced, because this is a fast-moving API on top of a preview-grade harness.
 - `../_delegation/README.md` — why the guard is Node here, and the differential
   test that stops it drifting from the bash original.
 - `${CLAUDE_PLUGIN_ROOT}/examples/` — `.deepseek/` templates to copy.
-- `${CLAUDE_PLUGIN_ROOT}/README.md` — install, the seam, the floor, maintenance.
+
+The repository's own `README.md` and `CLAUDE.md` are NOT shipped in the plugin
+cache -- it holds only `commands/`, `examples/`, `overlays/`, `scripts/` and
+`skills/`. Do not point a user at `${CLAUDE_PLUGIN_ROOT}/README.md`; the seam and
+the floor are documented above.

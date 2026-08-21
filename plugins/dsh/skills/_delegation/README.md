@@ -18,6 +18,7 @@ reader who cannot tell which is current.
 | `scripts/gen-hooks.mjs` | Generates the `hooks.json` that mounts the guard, plus the `policy.json` it reads |
 | `scripts/session-report.mjs` | Reads the delegate's durable session log into an audit of what it actually did |
 | `scripts/differential.test.mjs` | Asserts this Node guard and the bash original decide every payload identically |
+| `scripts/guard-paths.test.mjs`, `scripts/hooks-matcher.test.mjs`, `scripts/session-report.test.mjs` | Regression pins, one per defect that shipped: a path matcher that only spoke `/`, a matcher and a `switch` that disagreed, a report heading that read a path without normalising it |
 
 The guard is the reason this directory holds scripts and not only prose. The
 frozen-tests rule used to be enforced by asking the delegate nicely and checking

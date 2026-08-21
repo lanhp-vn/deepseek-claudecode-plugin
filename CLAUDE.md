@@ -12,8 +12,33 @@ plan and verify while DeepSeek V4 writes code inside a sandbox, under a
 Two different things are called `dsh`. `/dsh:setup`, `/dsh:run`, `/dsh:test`,
 `/dsh:update` and `/dsh:tools-check` (with the colon) are this plugin's
 commands and skills. Bare `dsh` is the harness CLI, installed separately via
-npm. `README.md` covers install and the trust model in depth; this file covers
-working *on* the code.
+npm.
+
+### Which doc says what
+
+Keep the split when editing. Prose that explains *why* the code is shaped the
+way it is belongs here and nowhere else; a reader who only wants to use the
+plugin should never have to read a fail-open post-mortem to install it.
+
+| File | Audience | Holds |
+|---|---|---|
+| `README.md` | someone installing or using it | quickstart, the five commands, the seam, what a delegate can never do. Tables and diagrams; no rationale |
+| `ONBOARDING.md` | a teammate on a new machine | the step-by-step walkthrough, and the paste-in prompt that installs and configures it |
+| `CLAUDE.md` (this) | someone changing the code | architecture, invariants, platform hazards, every measured post-mortem |
+| `plugins/dsh/skills/*/SKILL.md` | Claude, at runtime | how to *drive* one command; each is the reference for its own flags and failure table |
+
+`README.md` and `ONBOARDING.md` overlap on purpose — a quickstart and a
+walkthrough each have to stand alone — and the two facts neither may ever omit
+are that the hook bridge is mandatory and that a repo policy can only ever ADD
+denies. What must *not* be duplicated is **rationale**: a post-mortem, a measured
+date, a "why it is shaped this way" belongs here alone, so a finding has one
+place to be corrected. The permanent deny floor is *defined* in `policy.mjs` and
+*documented* in `README.md` — change the two together.
+
+Nothing outside `plugins/dsh/` reaches a user at runtime: the plugin cache holds
+`commands/`, `examples/`, `overlays/`, `scripts/` and `skills/` and nothing else,
+so `${CLAUDE_PLUGIN_ROOT}/README.md` and `.../CLAUDE.md` do not exist. A
+`SKILL.md` must never point at one.
 
 ## Commands
 
@@ -85,6 +110,28 @@ that made "blocks everything" look healthy, and a path matcher that only spoke
 `/`. When the doctor's live tier finds a new one, add a probe rather than only a
 test.
 
+**Safe but useless is still a failure.** The Windows hook form is fail-closed, so
+a guard that is missing, unparseable or has no `policy.json` blocks *everything* —
+and used to pass a block-only canary while being non-functional. It now aborts:
+such a run refuses every tool call, so you pay for a delegate that can do
+nothing. This is why the canary probes an ALLOW as well as a BLOCK; a check that
+cannot tell "holds the line" from "bricked" measures neither.
+
+**One implementation, on every platform.** A `.ps1` twin of the guard was
+considered and rejected: two implementations of a security boundary drift, and a
+guard that disagrees with itself across platforms is worse than an absent one
+because it still gets trusted. Everything is Node, which adds no prerequisite —
+`dsh` *is* Node. `differential.test.mjs` holds the one remaining pair (the bash
+original upstream and this port) to the same decisions for exactly that reason.
+
+**`--no-overlay` drops capability, never denies.** It bypasses the approval gate
+because it mounts nothing out of the repo's `overlay.yml` and so acquires no
+capability to consent to; the floor and the repo's `policy.yml` still apply. It
+also drops the plugin's own `overlays/00-base.yml`, whose only content disables
+the billed session-title request — so in a repo with *no* `overlay.yml` the flag
+mounts exactly the same tools and costs one extra request per run (measured
+2026-08-21). It is for skipping a repo's overlay on a prose task, not a habit.
+
 **Caller-supplied values reach `gen-hooks` as `--opt=value`.** A repo's deny
 entry may legitimately start with `-` (`-m integration`), and the space-separated
 form makes `parseArgs` reject it, killing the run with an error that names the
@@ -94,7 +141,12 @@ wrong culprit.
 `PreToolUse` matcher; the guard's `switch` handles tool names. If the two
 disagree, the guard's handling of that tool is dead code and the rule it
 enforces is silently off. This pair has drifted three times (`apply_patch`,
-`pwsh`, `NotebookEdit`). `hooks-matcher.test.mjs` now asserts the agreement.
+`pwsh`, `NotebookEdit`). Measured 2026-08-20, with the Node guard already in
+place: the matcher listed only `bash`/`Bash` while dsh names its shell tool
+`pwsh` on Windows, so a hook that existed, ran, and passed its own canary never
+fired for a single shell call — 6 tool calls, 3 hook invocations, `--allow-test`
+enforcing nothing. `hooks-matcher.test.mjs` now asserts the agreement, and the
+count disagreement is what `matcher coverage` in the run report looks for.
 
 **The guard is a speed bump, not a boundary.** Whitelisting any command that
 runs project code (`pytest` reading `conftest.py`, `npm test`, `make`) grants
@@ -110,12 +162,18 @@ the check that actually holds; the guard buys cost and an audit trail.
 (`VENDOR-MANIFEST.json` records the commit and hashes). The two halves are
 checked differently on purpose:
 
-- **prose** (`README.md`, `references/*.md`) is a verbatim copy, checked by
-  SHA-256. Do not edit these here — edit upstream and re-vendor, or
+- **prose** — `references/routing.md`, `references/briefing.md`,
+  `references/verification.md`, and *only* those three — is a verbatim copy,
+  checked by SHA-256. Do not edit them here; edit upstream and re-vendor, or
   `vendor-delegation.mjs --check` fails.
 - **scripts** are Node *ports* of bash originals, so a hash cannot compare them.
   They are checked behaviourally by `differential.test.mjs`, which feeds both
   implementations the same payloads and fails if they ever decide differently.
+- **`_delegation/README.md` is plugin-authored, not vendored** — the `PROSE`
+  list in `vendor-delegation.mjs` deliberately excludes it. Upstream's copy
+  documents a `delegation-guard.sh`, and a verbatim copy would tell a reader the
+  boundary is a shell script, which is the exact thing that fails open on
+  Windows. Edit it here.
 
 ### No runtime dependencies, deliberately
 
@@ -139,7 +197,12 @@ below was a real, shipped bug; none is theoretical.
   2026-08-21 by `dsh-doctor`'s first live run; the 2026-08-20 check passed only
   because that delegate happened to send a relative path. Paths are normalised
   once at the boundary (`slash()`), never per matcher; `guard-paths.test.mjs`
-  pins it. Anything new that compares a path must go through that boundary.
+  pins it. Anything that compares *or reads* a path must go through that
+  boundary — the class recurred harmlessly on 2026-08-21 in
+  `session-report.mjs`, where the report heading split a log path on `/` to name
+  the session directory and printed `(undefined)` on every Windows run.
+  Cosmetic there, silently unguarded in the guard; same mistake.
+  `session-report.test.mjs` pins that one.
 - **dsh runs command hooks through `ctx.shell`, which is PowerShell on Windows.**
   A `.sh` hook cannot execute there, exits non-2, and is treated as
   non-blocking — so every protection was off, on every Windows run, while the
