@@ -19,7 +19,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'n
 import { homedir, platform } from 'node:os'
 import { join, dirname } from 'node:path'
 
-const BASE_URL = 'https://api.deepseek.com'
+// Exported so dsh-doctor.mjs checks the same endpoint this installs against.
+export const BASE_URL = 'https://api.deepseek.com'
 
 const red = (s) => `\x1b[31m${s}\x1b[0m`
 const green = (s) => `\x1b[32m${s}\x1b[0m`
