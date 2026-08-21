@@ -91,8 +91,20 @@ try {
 // measured 2026-08-15, a matcher without it let Codex rewrite a frozen test
 // unopposed while the same guard blocked dsh, because dsh writes through
 // write/edit.
+// A tool NOT in this matcher is a tool the hook never runs for, so every name
+// the guard's frozen/allowlist switch handles must appear here. This list has
+// now drifted from that switch three times: `apply_patch` (Codex rewrote a
+// frozen test unopposed, 2026-08-15), `pwsh` and `NotebookEdit` (below).
+// hooks-matcher.test.mjs asserts the agreement so there is no fourth.
+//
+// `pwsh` is dsh's shell tool ON WINDOWS. Measured 2026-08-20: with it absent,
+// a run with --allow-test recorded 6 tool calls and only 3 hook invocations --
+// every pwsh call walked past the allowlist, and the delegate ran a command
+// that was never whitelisted. The canary still printed "the boundary is live"
+// because it probes the frozen-write half, which `write` does match. Windows
+// was unguarded on the command half of every run.
 const parts = ['write', 'edit', 'bash', 'str_replace_editor', 'apply_patch',
-  'Write', 'Edit', 'MultiEdit', 'Bash']
+  'Write', 'Edit', 'MultiEdit', 'Bash', 'pwsh', 'NotebookEdit']
 
 // Widen ONLY when the caller asked for denies, so a run without them pays no
 // extra hook invocations and produces the hooks.json it always did.

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { runCanary, PROBE_PATH } from './canary.mjs'
 
 // The guard the canary must probe is the one gen-hooks DEPLOYS into the run
@@ -11,7 +12,12 @@ import { runCanary, PROBE_PATH } from './canary.mjs'
 // guard resolves it as its own sibling) and would pass while the deployed copy
 // was missing.
 const GUARD_SRC = process.env.CANARY_GUARD ??
-  new URL('../skills/_delegation/scripts/delegation-guard.mjs', import.meta.url).pathname
+  // NOT `.pathname`: on Windows that yields `/D:/repo/...`, whose leading slash
+  // makes copyFileSync resolve it against the cwd and look for `D:\D:\repo\...`.
+  // Measured 2026-08-20: all four staging cases died on ENOENT, so the tests for
+  // the canary -- the backstop behind every other guarantee here -- did not run
+  // on Windows at all.
+  fileURLToPath(new URL('../skills/_delegation/scripts/delegation-guard.mjs', import.meta.url))
 
 const stage = (policy, { deployGuard = true } = {}) => {
   const d = mkdtempSync(join(tmpdir(), 'canary-'))

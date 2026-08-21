@@ -35,7 +35,7 @@ import {
   existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { discoverSeam, loadMachine, loadRepoPolicy, substituteMachine, MissingMachineKey } from './seam.mjs'
@@ -212,6 +212,45 @@ const runReport = (dir) => {
 }
 
 // ---------------------------------------------------------------------------
+// Resolving the `dsh` executable.
+//
+// npm installs the global bin as `dsh`, `dsh.cmd` and `dsh.ps1` -- and NO
+// `dsh.exe`. Node does no PATHEXT resolution without `shell: true`, so
+// `spawnSync('dsh', ...)` is ENOENT on Windows, and naming `dsh.cmd` directly is
+// EINVAL (Node's CVE-2024-27980 mitigation). Measured 2026-08-20: the dsh
+// backend could not launch AT ALL on Windows -- the one platform this port
+// exists for -- while the config and the canary both looked perfect.
+//
+// `shell: true` would fix the probe and BREAK the launch: the brief goes over as
+// a single argv element and legitimately contains `&&`, `|`, `;` and backticks,
+// because a good brief says those operators are refused. cmd.exe would mangle
+// or execute them. So resolve the package's real entry point and run it through
+// `process.execPath` -- the same shell-free pattern as the hook generator and
+// the session reporter above.
+// ---------------------------------------------------------------------------
+export function resolveDsh (env = process.env, platform = process.platform) {
+  // POSIX npm links a real executable shim onto PATH; nothing to resolve.
+  if (platform !== 'win32') return { cmd: 'dsh', pre: [] }
+
+  for (const dir of (env.PATH ?? '').split(delimiter).filter(Boolean)) {
+    if (!['dsh.cmd', 'dsh.exe', 'dsh.ps1', 'dsh'].some((n) => existsSync(join(dir, n)))) continue
+    // The npm global layout puts the package beside its shim.
+    const pkgDir = join(dir, 'node_modules', '@deepseek-ai', 'dsh')
+    if (!existsSync(join(pkgDir, 'package.json'))) continue
+    let bin
+    try { bin = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).bin } catch { continue }
+    const rel = typeof bin === 'string' ? bin : bin?.dsh
+    if (!rel) continue
+    const entry = join(pkgDir, rel)
+    if (existsSync(entry)) return { cmd: process.execPath, pre: [entry] }
+  }
+
+  // Unresolved: fall back to the bare name so the existing not-installed
+  // message, with its install instructions, is still what the operator sees.
+  return { cmd: 'dsh', pre: [] }
+}
+
+// ---------------------------------------------------------------------------
 // Backend: dsh (default)
 // ---------------------------------------------------------------------------
 async function runDsh (r) {
@@ -344,6 +383,15 @@ async function runDsh (r) {
     : r.model === 'flash' ? 'deepseek-v4-flash'
       : r.model
 
+  // Quoting a PATH into generated YAML. In a DOUBLE-quoted scalar a backslash
+  // opens an escape, so `C:Usersphamh` is `U` -- "expected hexadecimal
+  // character" -- and dsh refuses the whole patch before the run starts.
+  // Measured 2026-08-20 on Windows; the run died at composeProfile. An UNQUOTED
+  // plain scalar takes the backslash literally and works, but breaks on a path
+  // containing ` #` or `: `. Single-quoted style is the one that holds both
+  // ways: backslash is literal and `''` is the only escape.
+  const yp = (p) => `'${String(p).split("'").join("''")}'`
+
   // Every per-run choice is a cordis patch row: the headless app's entire command
   // line is the task positional plus -h (verified from its own --help), so there
   // is no --model or --permission-mode flag to reach for.
@@ -355,7 +403,7 @@ async function runDsh (r) {
 - id: sandbox-policy
   config:
     mode: workspace-write
-    workspaceRoot: "${r.dir}"
+    workspaceRoot: ${yp(r.dir)}
 
 # tool-web already ships fetch:false in the headless composition; this keeps it
 # off explicitly so a future default change does not silently grant the delegate
@@ -369,8 +417,8 @@ async function runDsh (r) {
     - id: hooks-cc
       name: '@deepseek-ai/dsh-hooks-claude-code'
       config:
-        configPath: ${join(rundir, 'hooks.json')}
-        projectDir: ${r.dir}
+        configPath: ${yp(join(rundir, 'hooks.json'))}
+        projectDir: ${yp(r.dir)}
 `)
 
   // Overlays first, the generated patch.yml last: `--patch` layers apply in
@@ -414,8 +462,10 @@ async function runDsh (r) {
   }
   console.error('>>> canary: the guard blocked its probe; the boundary is live')
 
-  // `command -v dsh`: spawn failure means it is not on PATH.
-  if (spawnSync('dsh', ['--version'], { stdio: 'ignore' }).error) {
+  // Spawn failure means it is not installed. See resolveDsh: on Windows the
+  // bare name is ENOENT even when dsh IS on PATH.
+  const dsh = resolveDsh()
+  if (spawnSync(dsh.cmd, [...dsh.pre, '--version'], { stdio: 'ignore' }).error) {
     console.error('deepseek-run: dsh not on PATH. Install it with:')
     console.error('  npm i -g @deepseek-ai/dsh   (then symlink it onto PATH if needed)')
     console.error('Or fall back with: --backend claude-code')
@@ -432,7 +482,7 @@ async function runDsh (r) {
   // exported key would silently bypass the managed store.
   const env = { ...process.env }
   delete env.DEEPSEEK_API_KEY
-  const res = spawnSync('dsh', ['--profile', 'headless', ...patchArgs, r.prompt], {
+  const res = spawnSync(dsh.cmd, [...dsh.pre, '--profile', 'headless', ...patchArgs, r.prompt], {
     cwd: r.dir, env, stdio: ['ignore', 'inherit', 'inherit'],
   })
 

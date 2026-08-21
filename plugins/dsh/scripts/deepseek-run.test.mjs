@@ -14,6 +14,8 @@ import { spawn, execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { resolveDsh } from './deepseek-run.mjs'
 
 const RUN = process.env.RUN_CMD ?? `node ${join(import.meta.dirname, 'deepseek-run.mjs')}`
 
@@ -40,7 +42,15 @@ const dryDir = () => mkdtempSync(join(tmpdir(), 'dry-'))
 const has = (dir, needle, ...names) => {
   for (const n of names) {
     const f = join(dir, n)
-    if (existsSync(f) && readFileSync(f, 'utf8').includes(needle)) return true
+    if (!existsSync(f)) continue
+    const text = readFileSync(f, 'utf8')
+    if (text.includes(needle)) return true
+    // A raw substring search is format-BLIND, and policy.json is JSON: a Windows
+    // path's separators are stored escaped, so the unescaped needle never
+    // matches. A POSIX path contains no character JSON escapes, which is why
+    // this silently worked everywhere except the platform the port is for.
+    // Compare against the encoded form too (quotes stripped).
+    if (n.endsWith('.json') && text.includes(JSON.stringify(needle).slice(1, -1))) return true
   }
   return false
 }
@@ -74,7 +84,18 @@ test('the guard is INSIDE the run dir and executable', () => {
   const guard = ['delegation-guard.sh', 'delegation-guard.mjs']
     .map((n) => join(composed, n)).find(existsSync)
   assert.ok(guard, 'guard is inside the run dir')
-  assert.ok(statSync(guard).mode & 0o111, 'and is executable')
+  // The .sh original was exec'd directly, so its mode bit was the thing. The
+  // Node guard is always invoked as `node "<path>"` -- gen-hooks names the
+  // interpreter because PowerShell cannot run a bare shebang script -- so the
+  // mode bit is vestigial for it, and NTFS has no exec bit to report anyway
+  // (mode & 0o111 is 0 for every file). Assert what actually has to hold:
+  // that the runtime can load the deployed copy.
+  if (guard.endsWith('.sh')) {
+    assert.ok(statSync(guard).mode & 0o111, 'the shell guard is executable')
+  } else {
+    assert.equal(spawnSync(process.execPath, ['--check', guard]).status, 0,
+      'node can load the deployed guard')
+  }
   assert.ok(has(composed, 'delegation-guard', 'hooks.json'), 'hooks.json names the guard')
 })
 
@@ -159,4 +180,64 @@ test('-h mentions both backends', async () => {
   assert.equal(r.code, 0, '-h exits 0')
   assert.match(r.stdout, /dsh/, '-h mentions dsh')
   assert.match(r.stdout, /claude-code/, '-h mentions claude-code')
+})
+
+// Measured 2026-08-20: npm installs the global bin as `dsh`/`dsh.cmd`/`dsh.ps1`
+// with no `dsh.exe`, and Node does no PATHEXT resolution without `shell: true`,
+// so `spawnSync('dsh', ...)` was ENOENT on Windows and the dsh backend could not
+// launch at all. The invariant is not "which name" -- it is that whatever
+// resolveDsh hands back is spawnable WITHOUT a shell, because the brief travels
+// as one argv element full of `&&`, `|` and backticks that cmd.exe would eat.
+test('resolveDsh returns something spawnable without a shell', (t) => {
+  const d = resolveDsh()
+  const probe = spawnSync(d.cmd, [...d.pre, '--version'], { stdio: 'pipe', encoding: 'utf8' })
+  if (probe.error && d.cmd === 'dsh') {
+    t.skip('dsh is not installed on this machine')
+    return
+  }
+  assert.equal(probe.error, undefined, `spawned with no shell (cmd: ${d.cmd})`)
+  assert.equal(probe.status, 0, 'dsh --version exits 0')
+  assert.match(probe.stdout, /[0-9]+[.][0-9]+[.][0-9]+/, 'reports a version')
+})
+
+// The POSIX shim is a real executable, so resolution there must stay a no-op --
+// a Windows fix that changed Linux behaviour would be a regression nobody on
+// Linux asked for.
+test('resolveDsh is a no-op off win32', () => {
+  assert.deepEqual(resolveDsh({ PATH: '/nonexistent' }, 'linux'), { cmd: 'dsh', pre: [] })
+})
+
+// The fallback keeps the existing not-installed message reachable: an operator
+// with no dsh must still be told how to install it, not handed an ENOENT trace.
+test('resolveDsh falls back to the bare name when nothing resolves', () => {
+  assert.deepEqual(resolveDsh({ PATH: '' }, 'win32'), { cmd: 'dsh', pre: [] })
+})
+
+// Measured 2026-08-20 on Windows: `workspaceRoot: "${r.dir}"` put a backslash
+// path inside a DOUBLE-quoted YAML scalar, where a backslash opens an escape.
+// dsh died in composeProfile with "expected hexadecimal character" before the
+// delegate ever started. Plain (unquoted) survives backslashes but not a path
+// containing " #" or ": "; single-quoted survives both.
+const BACKSLASH = String.fromCharCode(92)
+const PATH_KEYS = ["workspaceRoot:", "configPath:", "projectDir:"]
+
+test('generated patch.yml quotes paths so a backslash cannot open an escape', async () => {
+  const d = dryDir()
+  await runWrapper(['-C', ws, '--frozen', 'tests/test_c.py', '--dry-run', '--dry-run-dir', d, 'x'])
+  const lines = readFileSync(join(d, 'patch.yml'), 'utf8').split(String.fromCharCode(10))
+
+  const paths = lines.filter((l) => PATH_KEYS.some((k) => l.trim().startsWith(k)))
+  assert.equal(paths.length, 3, 'all three interpolated paths are present')
+  for (const l of paths) {
+    const value = l.slice(l.indexOf(':') + 1).trim()
+    assert.ok(value.startsWith("'") && value.endsWith("'"), `single-quoted: ${l.trim()}`)
+  }
+
+  // The class, not just the instance: no double-quoted scalar anywhere in the
+  // generated patch may carry a backslash.
+  for (const l of lines) {
+    const i = l.indexOf(': "')
+    if (i === -1) continue
+    assert.ok(!l.slice(i).includes(BACKSLASH), `double-quoted scalar with a backslash: ${l.trim()}`)
+  }
 })
