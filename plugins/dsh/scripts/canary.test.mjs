@@ -124,3 +124,20 @@ test('the canary fallback command matches what gen-hooks generates', () => {
   assert.equal(hookCommandFrom(mkdtempSync(join(tmpdir(), 'empty-')), guard), generated,
     'the fallback and the generator agree on the hook command')
 })
+
+// The gap this canary had until 2026-08-21: it probed a frozen path spelled
+// with '/', while dsh's write tool sends an absolute path spelled with '\'.
+// A guard whose separator normalisation is removed still blocks the old probe
+// and allows every real Windows write -- so the canary MUST fail here, or it
+// certifies a boundary that is off.
+test('a guard that does not normalise separators reports NOT ok', async () => {
+  const d = stage({ frozen: [PROBE_PATH], allowCmd: '', denyPath: [], denyCmd: [], denyTool: [] })
+  const src = readFileSync(join(d, 'delegation-guard.mjs'), 'utf8')
+  const broken = src.replace(/const slash = \(p\) => [^\r\n]+/, "const slash = (p) => String(p ?? '')")
+  assert.notEqual(broken, src, 'the normalisation must be present to be removable')
+  writeFileSync(join(d, 'delegation-guard.mjs'), broken)
+
+  const r = await runCanary({ guardPath: join(d, 'delegation-guard.mjs'), runDir: d })
+  assert.equal(r.ok, false)
+  assert.match(r.detail, /backslash|'\\'/i)
+})

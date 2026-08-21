@@ -60,9 +60,26 @@ try {
 } catch {
   die('delegation-guard: cannot read policy.json; blocking')
 }
-const frozen = policy.frozen ?? []
+// WINDOWS PATHS ARRIVE WITH BACKSLASHES AND EVERY MATCHER HERE SPEAKS `/`.
+//
+// Measured 2026-08-21, on the first live run of dsh-doctor: dsh's `write` tool
+// sends an ABSOLUTE file_path, so a frozen `contract.txt` was compared against
+// `C:\...\workspace\contract.txt`. `target.endsWith('/contract.txt')` is false
+// there, and the guard returned exit 0 -- ALLOW. The frozen rule and every
+// denyPath rule were silently off for absolute paths on Windows; only a
+// delegate that happened to send a relative path was ever refused, which is why
+// the 2026-08-20 check passed. Nothing in the config looked wrong, again.
+//
+// Normalise once, at the boundary, so the matchers keep their single vocabulary
+// instead of each one learning about separators. On POSIX a backslash is a
+// legal filename character, so `a\b.txt` now reads as `a/b.txt` and can match
+// a frozen `b.txt`: a false block on a pathological name, which costs one
+// bounced tool call, against a false allow, which costs the contract.
+const slash = (p) => String(p ?? '').split('\\').join('/')
+
+const frozen = (policy.frozen ?? []).map(slash)
 const allowCmd = policy.allowCmd ?? ''
-const denyPath = policy.denyPath ?? []
+const denyPath = (policy.denyPath ?? []).map(slash)
 const denyCmd = policy.denyCmd ?? []
 const denyTool = policy.denyTool ?? []
 
@@ -186,7 +203,7 @@ if (denyPath.length || denyCmd.length) {
   switch (tool) {
     case 'read': case 'Read': case 'write': case 'edit': case 'str_replace_editor':
     case 'Write': case 'Edit': case 'MultiEdit': case 'NotebookEdit': {
-      const t = arg('file_path') || arg('path')
+      const t = slash(arg('file_path') || arg('path'))
       if (pathDenied(t)) {
         die(`BLOCKED: ${t} is a denied path (secrets or protected state). It is out of scope for this task; do not read, write or copy it.`)
       }
@@ -200,12 +217,12 @@ if (denyPath.length || denyCmd.length) {
     // positive on the common case. A pathless grep therefore stays uncovered --
     // see the header, and delegate in a worktree.
     case 'glob': case 'Glob':
-      if (pathDenied(arg('path')) || pathDenied(arg('pattern'))) {
+      if (pathDenied(slash(arg('path'))) || pathDenied(slash(arg('pattern')))) {
         die('BLOCKED: that glob targets a denied path (secrets or protected state); do not enumerate it.')
       }
       break
     case 'grep': case 'Grep':
-      if (pathDenied(arg('path'))) {
+      if (pathDenied(slash(arg('path')))) {
         die(`BLOCKED: ${arg('path')} is a denied path (secrets or protected state); do not search it.`)
       }
       break
@@ -238,7 +255,7 @@ if (denyPath.length || denyCmd.length) {
       break
     }
     case 'terminal_open':
-      if (pathDenied(arg('cwd'))) {
+      if (pathDenied(slash(arg('cwd')))) {
         die(`BLOCKED: ${arg('cwd')} is a denied path; do not open a shell there.`)
       }
       break
@@ -255,7 +272,7 @@ switch (tool) {
   // disagree, and they disagree on purpose.
   case 'write': case 'edit': case 'str_replace_editor':
   case 'Write': case 'Edit': case 'MultiEdit': case 'NotebookEdit': {
-    const target = arg('file_path') || arg('path')
+    const target = slash(arg('file_path') || arg('path'))
     if (!target) process.exit(0)
     for (const f of frozen) {
       const b = basename(f)

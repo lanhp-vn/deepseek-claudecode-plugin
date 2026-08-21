@@ -41,6 +41,25 @@ const PROBE = JSON.stringify({
   tool_input: { file_path: PROBE_PATH },
 })
 
+// THE SAME FROZEN FILE, SPELLED THE WAY dsh ACTUALLY SPELLS ONE ON WINDOWS.
+//
+// Measured 2026-08-21: the guard matched frozen paths with `/` only, so a write
+// to `C:\...\contract.txt` -- an absolute path, which is the ONLY kind dsh's
+// `write` tool sends -- exited 0 and was allowed, while this canary went on
+// reporting the boundary live. Its probe could not see the gap because the
+// probe itself was forward-slash-only, so it exercised a spelling production
+// never uses. That is the same mistake as spawning the guard directly instead
+// of through the shell, in a different coordinate.
+//
+// Probed on every platform, not just win32: the guard normalises separators
+// unconditionally, so this must block everywhere, and a POSIX-only maintainer
+// editing the path layer gets the failure on their own machine rather than in
+// a Windows user's unguarded run.
+const PROBE_BACKSLASH = JSON.stringify({
+  tool_name: 'write',
+  tool_input: { file_path: `C:${String.fromCharCode(92)}canary${String.fromCharCode(92)}__guard_probe__` },
+})
+
 // PROBE THROUGH THE SHELL THE HARNESS WILL USE, NOT `node` DIRECTLY.
 //
 // This probe used to `spawn(process.execPath, [guardPath])`, which tests the
@@ -127,7 +146,23 @@ export async function runCanary ({ guardPath, runDir }) {
     }
   }
 
-  // 2. It must ALLOW what it must allow. A guard that is missing, unparseable or
+  // 2. It must block that same file spelled with backslashes -- the spelling a
+  // real Windows delegate sends, and the one that failed open on 2026-08-21.
+  const blockedWin = await probe({ guardPath, runDir, payload: PROBE_BACKSLASH })
+  if (blockedWin.spawnError) {
+    return { ok: false, detail: `the guard did not block the backslash canary: could not spawn it (${blockedWin.spawnError})` }
+  }
+  if (blockedWin.code !== 2) {
+    return {
+      ok: false,
+      detail:
+        `the guard blocked a frozen path written with '/' but ALLOWED the same file written with '\\' ` +
+        `(exit ${blockedWin.code}). dsh sends absolute paths, so on Windows the frozen rule and every ` +
+        `denyPath rule would be off for real tool calls while looking correct.\n  first stderr line: ${first(blockedWin.stderr)}`,
+    }
+  }
+
+  // 3. It must ALLOW what it must allow. A guard that is missing, unparseable or
   // crashing blocks EVERYTHING under the fail-closed Windows form, and would
   // otherwise sail past step 1 while being entirely broken.
   const allowed = await probe({ guardPath, runDir, payload: ALLOW_PROBE })

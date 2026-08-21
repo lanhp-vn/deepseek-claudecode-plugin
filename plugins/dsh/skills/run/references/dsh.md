@@ -349,6 +349,33 @@ The checks, with results:
    which checks 1-4 all pass straight over: 6 calls against 3 decisions is a
    silently unenforced allowlist. — **PASS** after fix 3 (4 calls, 4 decisions).
 
+**All five are now automated.** `scripts/dsh-doctor.mjs` (`/dsh:test`) runs the
+static half, the canary through the real shell, and one live delegation briefed
+to attempt both a frozen write and an unwhitelisted command — then reads the
+session log for the block decisions, the guard-health exits and the
+decision-vs-call count. Run it after any change to the guard, the generator or
+the wrapper, and on any machine where a delegation has not run before.
+
+### A fourth Windows fail-open, found by that doctor on its first live run
+
+**Measured 2026-08-21, `dsh` 0.1.0-rc.7, Node v22.17.1, win32.** A frozen file
+was ALLOWED. dsh's `write` tool sends an absolute `file_path`, so the guard
+compared `C:\...\workspace\contract.txt` against a frozen entry of
+`contract.txt` — and every path matcher in the guard speaks `/`, so
+`endsWith('/contract.txt')` was false and it exited 0. The same gap disabled
+every `denyPath` rule (`.env*`, `credentials/**`) for absolute paths.
+
+Check 4 passed on 2026-08-20 only because that delegate happened to write a
+relative path. Nothing else was wrong: the canary was live, the matcher covered
+`pwsh`, the hook command carried the exit suffix, and the counts agreed. The
+frozen file survived that run purely because dsh's own `write` tool refuses to
+overwrite a file the delegate has not read.
+
+Fixed by normalising separators once where paths enter the guard, not in each
+matcher; `guard-paths.test.mjs` fails without it. Same class as the other three:
+**on Windows this system fails silently and looks correct**, and only a live run
+compared against the log exposes it.
+
 The `--backend claude-code` fallback is **not** covered by any of this and has
 still never been run on Windows. One blocker it does *not* have: Claude Code
 ships a real `claude.exe`, so the bare-`spawnSync` ENOENT above does not apply
