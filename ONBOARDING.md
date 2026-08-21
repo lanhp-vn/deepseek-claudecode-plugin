@@ -126,6 +126,29 @@ The other two skills: `/dsh:update` checks the four upstreams that move
 independently and re-tests afterwards; `/dsh:tools-check` does Phase 2 below for
 you, against the repo you are actually in.
 
+### 7. Updating, later
+
+Two slash commands, in this order:
+
+```
+/plugin marketplace update nouslogic     # 1. refresh the local clone
+/plugin update dsh@nouslogic             # 2. then install from it
+```
+
+`/plugin update` installs from the marketplace **clone on your disk**, not from
+GitHub, so running it alone against a stale clone reinstalls stale code under an
+unchanged version number. Measured 2026-08-21: the clone sat four commits behind
+a cache that was current, both reporting the same version — updating the plugin
+without updating the marketplace first would have replaced a working guard with
+one missing the Windows exit-code fix, silently.
+
+Confirm by CONTENT, not by version string: grep the new cache directory for a
+string only the new code has. Then run `/dsh:test`, which is the only check that
+proves the guard still blocks.
+
+`/dsh:update` does the checking half of all this for you, across all four
+upstreams that move independently, and changes nothing until you approve it.
+
 ---
 
 ## What a repository declares for itself

@@ -89,6 +89,23 @@ It spends money because it has to. Every fail-open this plugin exists to fix
 looked perfect in the configuration and passed every check that spent nothing —
 including one found by `/dsh:test` itself, on its first ever run.
 
+### Updating
+
+Two slash commands, and **the order is load-bearing**:
+
+```
+/plugin marketplace update nouslogic     # 1. refresh the local clone
+/plugin update dsh@nouslogic             # 2. then install from it
+```
+
+`/plugin update` installs from the marketplace **clone on your disk**, not from
+GitHub. Run it alone against a stale clone and it reinstalls stale code under an
+unchanged version number — so both sides report success and nothing moved.
+
+- `/dsh:update` checks all four upstreams first and tells you what is actually due.
+- Then `/dsh:test`. An update is not finished until the guard is proven again.
+- Your key is untouched — it lives in `~/.deepseek/`, not in the plugin cache.
+
 ---
 
 ## What a run actually does
