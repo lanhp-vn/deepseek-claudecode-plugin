@@ -63,6 +63,19 @@ prerequisite — `dsh` *is* Node.
 `skills/_delegation/scripts/differential.test.mjs` feeds this guard and the bash
 original the same payloads and fails if they ever disagree.
 
+Porting to Node closed that hole and did not close the *class*. Measured
+2026-08-20, with the Node guard in place: dsh names its shell tool `pwsh` on
+Windows and `bash` elsewhere, the generated matcher listed only `bash`/`Bash`,
+and so a hook that existed, ran, and passed its own canary never fired for one
+shell call — 6 tool calls, 3 hook invocations, `--allow-test` unenforced.
+**A tool absent from the matcher is a rule that is silently off**, no matter how
+carefully the guard handles it; `hooks-matcher.test.mjs` now fails if the matcher
+and the guard's switch disagree. Two more Windows traps sat in the wrapper and
+merely stopped runs dead rather than weakening them: `spawnSync` on a bare
+npm-installed CLI name is ENOENT there (no `.exe`, and Node does no PATHEXT
+resolution), and a Windows path in a *double*-quoted YAML scalar makes the
+backslash open an escape.
+
 ## Per-project capability: the `.deepseek/` seam
 
 A repository declares what its delegations may use, and the deny set that bounds
@@ -175,6 +188,15 @@ Nothing has been spent.
 **There is no flag to skip it, and none should be added.** It is the check that
 would have caught both that incident and the Windows fail-open.
 
+**It proves one half.** The probe is a frozen-path write, so it certifies the
+frozen rule; it never exercises the command allowlist, and the two halves fail
+independently. Measured 2026-08-20: with `pwsh` missing from the matcher, the
+canary reported the boundary live on a Windows run whose `--allow-test` was
+enforcing nothing at all. Until the probe covers both halves, the honest
+cross-check is in the run report — the guard-decision count should match the
+count of matched tool calls, and shell calls slipping past show up as a
+disagreement between the two.
+
 ## What the guard does not do
 
 It blocks the direct route. It is not a boundary. A delegate allowed to run a
@@ -195,11 +217,19 @@ Maintainers who want it:
 git submodule update --init references/deepseek-harness
 ```
 
-Run the tests before changing anything under `skills/_delegation/`:
+Run the tests before changing anything under `skills/_delegation/`. Both script
+directories, from the repo root — `hooks-matcher.test.mjs` lives in the second
+one and is what catches a guard rule going silently off:
 
 ```bash
-cd plugins/dsh/scripts && node --test *.test.mjs
-cd ../skills/_delegation/scripts && \
+node --test plugins/dsh/scripts/*.test.mjs plugins/dsh/skills/_delegation/scripts/*.test.mjs
+```
+
+The differential needs both implementations named, and skips on Windows because
+there is no bash reference there:
+
+```bash
+cd plugins/dsh/skills/_delegation/scripts && \
   BASH_GUARD=~/Documents/system-settings/skills/_delegation/scripts/delegation-guard.sh \
   NODE_GUARD=$PWD/delegation-guard.mjs node --test differential.test.mjs
 ```

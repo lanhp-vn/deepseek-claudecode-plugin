@@ -287,6 +287,12 @@ switch (tool) {
     process.exit(0)
   }
 
+  // `pwsh` is dsh's shell tool on WINDOWS; `bash` is the same tool elsewhere.
+  // Handling a name here does nothing unless gen-hooks also puts it in the
+  // PreToolUse matcher -- an unmatched tool never reaches this switch at all.
+  // Measured 2026-08-20: `pwsh` was handled here and absent there, so every
+  // Windows shell call bypassed the allowlist while the config and the canary
+  // both looked right. hooks-matcher.test.mjs now enforces the agreement.
   case 'bash': case 'Bash': case 'pwsh': {
     if (!allowCmd) process.exit(0)
     const cmd = arg('command')

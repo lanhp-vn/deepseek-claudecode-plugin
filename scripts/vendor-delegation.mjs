@@ -48,7 +48,14 @@ const PROSE = [
 ]
 
 const check = process.argv.includes('--check')
-const sha = (s) => `sha256:${createHash('sha256').update(s, 'utf8').digest('hex')}`
+// Hash LF-NORMALISED content. Upstream is LF; a Windows clone with
+// core.autocrlf -- the default there -- checks the vendored copy out as CRLF, so
+// hashing raw bytes reported DRIFT on all three prose files while nothing had
+// been edited (measured 2026-08-20). A verbatim copy is verbatim in CONTENT, and
+// a manifest that means different things on different machines is worse than no
+// manifest: it fails loudly and wrongly, which teaches the operator to ignore it.
+const sha = (s) => `sha256:${createHash('sha256')
+  .update(s.split('\r\n').join('\n'), 'utf8').digest('hex')}`
 
 // The provenance header required by conventions/04-skills-and-agents.md. It is
 // prepended on vendoring and stripped before hashing, so the hash describes the
@@ -59,7 +66,11 @@ const MARK_END = '-->'
 function stripHeader (text) {
   if (!text.startsWith(MARK_START)) return text
   const i = text.indexOf(MARK_END)
-  return i === -1 ? text : text.slice(i + MARK_END.length).replace(/^\n+/, '')
+  // `[\r\n]+`, not `\n+`: on a CRLF checkout the text after the header starts
+  // with `\r`, so a newline-only class stripped nothing and left two blank lines
+  // glued to the front of the body. sha() normalises the separators INSIDE the
+  // body; only the leading run has to be dealt with here.
+  return i === -1 ? text : text.slice(i + MARK_END.length).replace(/^[\r\n]+/, '')
 }
 
 function header (srcRepo, srcPath, commit, date) {

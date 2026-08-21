@@ -20,6 +20,15 @@
 // the source guard reads the wrong policy.
 //
 // There is deliberately NO flag to skip this.
+//
+// WHAT THIS DOES NOT PROVE. The probe is a frozen-path WRITE, so it certifies
+// the frozen rule and the guard's reachability -- not the command allowlist.
+// The two halves fail independently, and one did: measured 2026-08-20, `pwsh`
+// was missing from the generated matcher, so every shell call on Windows walked
+// past --allow-test while this canary reported the boundary live. Extending the
+// probe to a denied COMMAND would close that gap and is the obvious next step
+// here; until then hooks-matcher.test.mjs is what holds the matcher and the
+// guard's switch together.
 import { spawn } from 'node:child_process'
 
 // A path no real task touches, added to the frozen list for the probe only.

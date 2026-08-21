@@ -259,16 +259,32 @@ three unguarded graph-write tools unless the guard denies them by name, which is
 why `--deny-tool` exists. Verified live: the block landed in the session log as
 `block (exit 2)`.
 
-## Windows: NOT YET VERIFIED
+## Windows: VERIFIED 2026-08-20, after three fixes
 
-**Status as of 2026-08-20: intended, not demonstrated.** Everything below was
-built to fix the Windows fail-open, and every piece of it is verified on Linux.
-No delegation has been run on the Windows laptop.
+**Status: real delegations have now run on native Windows.** Node v22.17.1,
+win32, `dsh` 0.1.0-rc.7, plugin 2.0.0, PowerShell as `ctx.shell`.
 
-Do not state that this plugin works on Windows until the four checks below have
-been run there and their results recorded in this section with the date and the
-`dsh` version. The whole finding behind this port is that **a broken Windows run
-looks correct**, so an untested claim is worse than none.
+Nothing worked on the first attempt, and **not one of the three defects
+announced itself as a Windows problem**:
+
+- `spawnSync('dsh', ...)` is ENOENT here — npm ships `dsh`, `dsh.cmd` and
+  `dsh.ps1` but no `dsh.exe`, and Node does no PATHEXT resolution without
+  `shell: true`; naming the `.cmd` directly is EINVAL. The backend could not
+  launch **at all**. Fixed by resolving the package `bin` and spawning
+  `process.execPath`.
+- `workspaceRoot` was interpolated into a *double*-quoted YAML scalar, where a
+  backslash opens an escape, so dsh refused the patch in `composeProfile` with
+  "expected hexadecimal character" before the delegate started.
+- `pwsh` was absent from the PreToolUse matcher. dsh names its shell tool `pwsh`
+  here, so `--allow-test` and `--deny-cmd` were enforcing **nothing**: 6 tool
+  calls against 3 hook invocations, and the delegate ran a command that was never
+  whitelisted.
+
+The third is the one to remember, because **the canary still reported the
+boundary live.** Its probe is a frozen-path write, so it exercised the half that
+happened to work. The four checks below were therefore *not sufficient as
+written* — a fifth is now listed, and it is the cheap one that would have caught
+this.
 
 What is mechanically true already:
 
@@ -281,21 +297,34 @@ What is mechanically true already:
   and the plugin cache does not get one (measured: `import('yaml')` from the
   cache fails with `ERR_MODULE_NOT_FOUND`).
 
-The four checks:
+The checks, with results:
 
 1. `/plugin marketplace add nouslogic/deepseek-claudecode-plugin`,
-   `/plugin install deepseek-invoke@nouslogic`, `/deepseek-setup`.
+   `/plugin install dsh@nouslogic`, `/dsh:setup`. — **PASS.** Setup reports the
+   hook bridge present, the key accepted, both models, and a balance.
 2. Run a `--dry-run` and open the generated `hooks.json`. The command must read
-   `node "C:\...\delegation-guard.mjs"`.
+   `node "C:\...\delegation-guard.mjs"`. — **PASS**, with the interpreter named
+   and the path backslash-escaped inside the JSON string.
 3. Run a real delegation. **It must not abort at the canary.** An abort here
    means the guard is unreachable — which is exactly what the canary exists to
-   tell you, and exactly what used to pass silently.
+   tell you, and exactly what used to pass silently. — **PASS**, after fix 1 and
+   fix 2 above. Two delegations completed; contract green both times, under two
+   cents total on `flash`.
 4. Give a delegate a brief that instructs it to edit the frozen test. Then
    `git diff -- <frozen>` must be empty, and the session log must record
-   `block (exit 2)`.
+   `block (exit 2)`. — **PARTIAL.** The guard was verified to return exit 2 on a
+   frozen `write`/`NotebookEdit` payload and on a non-whitelisted command, fed
+   directly. No delegate was *briefed* to attempt the edit, so the end-to-end
+   path is still unproven here. `git diff -- <frozen>` was empty on both runs.
+5. **Compare the guard-decision count against the matched tool-call count** in
+   the run report. They must agree. This is the check that catches a matcher gap,
+   which checks 1-4 all pass straight over: 6 calls against 3 decisions is a
+   silently unenforced allowlist. — **PASS** after fix 3 (4 calls, 4 decisions).
 
 The `--backend claude-code` fallback is **not** covered by any of this and has
-never been run on Windows.
+still never been run on Windows. One blocker it does *not* have: Claude Code
+ships a real `claude.exe`, so the bare-`spawnSync` ENOENT above does not apply
+to it.
 
 ## Evaluated and rejected
 

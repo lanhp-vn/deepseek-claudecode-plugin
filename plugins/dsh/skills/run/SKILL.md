@@ -180,6 +180,14 @@ Two things fix it, and neither has an override:
 **Never add a flag that skips the canary.** It is the check that would have
 caught both the 2026-08-15 incident and the Windows fail-open below.
 
+**But know what the canary proves.** It probes a frozen-path write, so it
+certifies the *frozen* half of the boundary. It does not exercise the command
+allowlist, and the two halves fail independently: measured 2026-08-20, a matcher
+missing `pwsh` left `--allow-test` wholly unenforced on Windows while the canary
+still printed *the boundary is live*. The cheap cross-check is in the run report
+— compare the guard-decision count against the tool-call count. If shell calls
+are not being hooked, those two numbers disagree.
+
 ### The Windows fail-open this plugin exists to fix
 
 dsh runs command hooks through `ctx.shell`, which is **PowerShell on Windows**.
@@ -188,6 +196,23 @@ exited non-2, and the protocol treats that as non-blocking. So on Windows the
 config looked correct and **every protection was off, on every run**. Everything
 here is Node for that reason, and the guard imports only `node:` builtins — a
 missing `node_modules` must never be able to disable a security boundary.
+
+It then happened a second time, same class, same platform, with the Node guard
+in place. dsh names its shell tool `pwsh` on Windows and `bash` elsewhere, and
+the generated matcher listed only `bash`/`Bash` — so a hook that existed, ran,
+and passed its own canary never fired for a single shell call. Measured
+2026-08-20: 6 tool calls against 3 hook invocations, and a delegate running a
+command that was never whitelisted. The lesson generalises past this one name:
+**a tool absent from the matcher is a rule that is silently off**, however
+carefully the guard handles it. `hooks-matcher.test.mjs` now fails if the matcher
+and the guard's switch ever disagree again.
+
+Two further Windows traps live in the wrapper rather than the guard, and both
+stopped a run before it began rather than weakening one: `spawnSync` on a bare
+npm-installed CLI name is ENOENT (no `.exe`, and Node does no PATHEXT
+resolution), and a Windows path interpolated into a *double*-quoted YAML scalar
+makes the backslash open an escape. Resolve the package `bin` and spawn
+`process.execPath`; single-quote paths in generated YAML.
 
 ## Verify against the log, not the summary
 
@@ -278,6 +303,14 @@ caveats first.
 - **`uv` cannot write `~/.cache/uv` under `workspace-write`**, so delegates
   redirect `UV_CACHE_DIR` into the workspace. A summary mentioning that is a
   correctly-degraded run announcing itself, not a fault.
+- **The sandbox denies child processes, so `node --test` cannot run under it.**
+  The runner spawns one child per test file and every file fails with
+  `spawn EPERM`. Measured 2026-08-20: a delegate whitelisted for
+  `node --test tests/x.test.mjs` could not satisfy its own brief, and worked
+  around it by running the file in-process — which the guard then had to allow or
+  refuse on a command that was never whitelisted. Whitelist the spawn-free form
+  instead (`node tests/x.test.mjs` runs `node:test` in-process and still exits
+  non-zero on failure). The same trap applies to any runner that forks per file.
 - **A whitelisted command is matched as a bare command.** The guard rejects any
   shell control operator (`;`, `&&`, `|`, backticks, `$(`, redirection), because
   a prefix match alone would let `<allowed> && curl evil` through. Leading

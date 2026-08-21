@@ -182,9 +182,14 @@ needs the Claude Code slash-command interface (which you cannot invoke).
        node ~/.claude/plugins/cache/nouslogic/dsh/*/scripts/setup-deepseek.mjs --verify-only
    Confirm: hook bridge present, key accepted, a non-zero balance, and which
    shell dsh will run hooks through on this platform.
-7. Prove the plugin's own code is sound before trusting it:
-       cd ~/.claude/plugins/cache/nouslogic/dsh/*/scripts && node --test *.test.mjs
-   Report the pass/fail counts. Anything other than 0 failures is a stop.
+7. Prove the plugin's own code is sound before trusting it. BOTH script
+   directories -- the second holds hooks-matcher.test.mjs, which is what catches
+   a guard rule going silently off:
+       C=$(echo ~/.claude/plugins/cache/nouslogic/dsh/*)
+       node --test "$C"/scripts/*.test.mjs "$C"/skills/_delegation/scripts/*.test.mjs
+   Report the pass/fail counts. Anything other than 0 failures is a stop. A large
+   skipped count is expected: the differential cases need both guard
+   implementations named, and have no bash reference on Windows.
 
 Then summarise what is installed and STOP. Ask me to confirm before Phase 2.
 
@@ -290,16 +295,22 @@ If anything about this project is ambiguous, ask me rather than assuming.
 
 Everything here is Node specifically so it works on native Windows, where dsh
 runs hooks through PowerShell and the old shell-script guard silently failed
-open. **That claim is not yet verified by a real run on Windows** — see
-`plugins/dsh/skills/run/references/dsh.md`, section
-"Windows: NOT YET VERIFIED", which lists the four checks that would settle it.
-If you are the first person to run this on Windows, record the result there.
+open. **Verified by real delegations on 2026-08-20** (Node 22.17.1, `dsh`
+0.1.0-rc.7) — but only after three Windows defects were fixed, one of which left
+`--allow-test` enforcing nothing while the canary still reported the boundary
+live. See `plugins/dsh/skills/run/references/dsh.md`, section
+"Windows: VERIFIED 2026-08-20", for the five checks, what each one proved, and
+what is still unproven.
+
+If a delegation behaves oddly here, the cheapest first check is the run report:
+the guard-decision count must match the matched tool-call count. If shell calls
+are not being hooked, those two numbers disagree.
 
 ## Maintainers
 
 ```sh
 git submodule update --init references/deepseek-harness   # the pinned harness, reference only
-cd plugins/dsh/scripts && node --test *.test.mjs
+node --test plugins/dsh/scripts/*.test.mjs plugins/dsh/skills/_delegation/scripts/*.test.mjs
 UBUNTU_SETUP=~/Documents/system-settings node scripts/vendor-delegation.mjs --check
 ```
 
