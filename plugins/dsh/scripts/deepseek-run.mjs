@@ -360,16 +360,26 @@ async function runDsh (r) {
   // Compose the guard through the hook generator; it writes hooks.json,
   // delegation-guard.mjs and policy.json into the run dir. We never write those
   // ourselves.
+  // `--opt=value`, NOT `--opt value`, for every caller-supplied string.
+  //
+  // Measured 2026-08-21: a policy.yml carrying the natural entry
+  // `- "-m integration"` reached gen-hooks as `--deny-cmd -m integration`, and
+  // node:util parseArgs refuses a value that starts with a dash -- "could not
+  // generate the guard", exit 2, before anything is spent. It fails closed and
+  // loudly, so nothing was ever unguarded by it, but a legitimate deny rule was
+  // impossible to express and the error named the wrong culprit. The `=` form
+  // is what parseArgs' own error message recommends, and it makes every value
+  // opaque to the parser regardless of what a repo writes.
   const genArgs = ['--out', rundir, '--dialect', 'dsh']
-  for (const f of r.frozen) genArgs.push('--frozen', f)
+  for (const f of r.frozen) genArgs.push(`--frozen=${f}`)
   // The canary's probe path is frozen for the WHOLE run, not just the self
   // test, so the guard stays provably live rather than only having been live
   // once at startup.
-  genArgs.push('--frozen', PROBE_PATH)
-  if (r.allowTest) genArgs.push('--allow-cmd', r.allowTest)
-  for (const g of pol.denyPath) genArgs.push('--deny-path', g)
-  for (const c of pol.denyCmd) genArgs.push('--deny-cmd', c)
-  for (const t of pol.denyTool) genArgs.push('--deny-tool', t)
+  genArgs.push(`--frozen=${PROBE_PATH}`)
+  if (r.allowTest) genArgs.push(`--allow-cmd=${r.allowTest}`)
+  for (const g of pol.denyPath) genArgs.push(`--deny-path=${g}`)
+  for (const c of pol.denyCmd) genArgs.push(`--deny-cmd=${c}`)
+  for (const t of pol.denyTool) genArgs.push(`--deny-tool=${t}`)
   const genHooks = join(here, '..', 'skills', '_delegation', 'scripts', 'gen-hooks.mjs')
   const gen = spawnSync(process.execPath, [genHooks, ...genArgs], {
     stdio: ['ignore', 'ignore', 'inherit'],

@@ -241,3 +241,41 @@ test('generated patch.yml quotes paths so a backslash cannot open an escape', as
     assert.ok(!l.slice(i).includes(BACKSLASH), `double-quoted scalar with a backslash: ${l.trim()}`)
   }
 })
+
+// --------------------------------------------------------------------------
+// Values that begin with a dash.
+//
+// 2026-08-21: the natural way to deny pytest's integration marker --
+// `- "-m integration"` in a repo's policy.yml -- reached gen-hooks as
+// `--deny-cmd -m integration`, which node:util parseArgs refuses. The run died
+// with "could not generate the guard" and named the wrong culprit, so a
+// legitimate rule was simply unexpressible. Fixed by passing every
+// caller-supplied value as `--opt=value`.
+// --------------------------------------------------------------------------
+const dashWs = mkdtempSync(join(tmpdir(), 'dash-'))
+execFileSync('mkdir', ['-p', join(dashWs, '.deepseek')])
+writeFileSync(join(dashWs, '.deepseek', 'policy.yml'),
+  'denyCmd:\n  - "-m integration"\ndenyPath:\n  - "-weird-dir/**"\n')
+
+test('a deny entry starting with a dash composes instead of aborting', async () => {
+  const d = dryDir()
+  const r = await runWrapper(['-C', dashWs, '--dry-run', '--dry-run-dir', d, 'x'])
+  assert.equal(r.code, 0, `the run composes (stderr: ${r.stderr.slice(0, 400)})`)
+
+  const pol = JSON.parse(readFileSync(join(d, 'policy.json'), 'utf8'))
+  assert.ok(pol.denyCmd.includes('-m integration'), 'the dash-prefixed command deny reached the guard')
+  assert.ok(pol.denyPath.includes('-weird-dir/**'), 'the dash-prefixed path deny reached the guard')
+})
+
+// The same hazard on the operator's own flags, which are free text by design.
+test('a frozen path and an allowed command starting with a dash survive', async () => {
+  const d = dryDir()
+  const r = await runWrapper([
+    '-C', ws, '--frozen', '-odd-name.py', '--allow-test', '-m pytest',
+    '--dry-run', '--dry-run-dir', d, 'x',
+  ])
+  assert.equal(r.code, 0, `composes (stderr: ${r.stderr.slice(0, 400)})`)
+  const pol = JSON.parse(readFileSync(join(d, 'policy.json'), 'utf8'))
+  assert.ok(pol.frozen.includes('-odd-name.py'), 'the frozen path reached the guard')
+  assert.equal(pol.allowCmd, '-m pytest', 'the allowed command reached the guard intact')
+})
