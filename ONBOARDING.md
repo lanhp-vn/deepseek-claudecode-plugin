@@ -108,6 +108,24 @@ hooks through, **whether the hook bridge is present**, whether the key is
 accepted, the available models, and your balance. Reach for it first whenever a
 delegation fails confusingly — a `402` is an empty balance, not a bad brief.
 
+### 6. Prove the guard actually blocks
+
+```
+/dsh:test
+```
+
+`--verify-only` above proves your credentials and plumbing. It cannot prove the
+part that has failed silently three times: that the guard **refuses** what it is
+supposed to refuse. `/dsh:test` composes a real run, probes the deployed guard
+through the shell dsh will use, then spends about a cent on one delegation
+briefed to attempt two calls that must be refused, and reads the session log to
+confirm they were. Run it after install, after every update, and on any machine
+where a delegation has not run before.
+
+The other two skills: `/dsh:update` checks the four upstreams that move
+independently and re-tests afterwards; `/dsh:tools-check` does Phase 2 below for
+you, against the repo you are actually in.
+
 ---
 
 ## What a repository declares for itself
@@ -232,7 +250,10 @@ Opt-in, worth considering:
       A language server. All three rows are needed. Only worth it for a typed
       language WITH a manifest AND a server binary installed on this machine
       (pyright-langserver, typescript-language-server, …). Worthless for prose,
-      and this is per-request cost. Recommend `--no-overlay` for markdown tasks.
+      and this is per-request cost. Recommend `--no-overlay` for markdown tasks
+      IN A REPO THAT MOUNTS ONE -- the flag also drops 00-base.yml, so in a repo
+      with no overlay it buys nothing and re-enables a billed session-title
+      request (measured 2026-08-21).
   @deepseek-ai/dsh-mcp-client
       Bridges an external MCP server; tools appear as `mcp__<serverName>__<name>`.
       Config keys are FLAT: serverName, transport, command, args,

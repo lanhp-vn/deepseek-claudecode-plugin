@@ -8,7 +8,16 @@ working.
 /plugin marketplace add git@github.com:nouslogic/deepseek-claudecode-plugin.git
 /plugin install dsh@nouslogic
 /dsh:setup
+/dsh:test
 ```
+
+`/dsh:test` is the one to run before trusting a fresh install, and again after
+every update: it composes a real run, probes the deployed guard through the
+shell dsh will use, then spends about a cent on a delegation briefed to attempt
+two calls the guard must refuse. Every fail-open this plugin exists to fix
+looked perfect in the config, and one of them was found by that check on its
+first run. `/dsh:update` checks the four upstreams that move independently;
+`/dsh:tools-check` fits a repository's `.deepseek/` seam to what it actually is.
 
 Two things are called `dsh` here and they are not the same. `/dsh:setup` and
 `/dsh:run`, with the colon, are this plugin's commands. Bare `dsh` is the
@@ -168,6 +177,12 @@ the floor and the repo's `policy.yml` apply to every run either way. Without
 this, editing an overlay re-armed the gate for prose delegations too, and the
 documented cheap path for a docs-dominant repo was blocked behind approving a
 language server that run would never load.
+
+It is for skipping *a repo's overlay*, though — not a habit for prose. It also
+drops the plugin's own `overlays/00-base.yml`, whose only content disables the
+billed session-title request, so in a repository that has no `overlay.yml` the
+flag mounts exactly the same tools and costs one extra request per run
+(measured 2026-08-21).
 
 ## The canary
 

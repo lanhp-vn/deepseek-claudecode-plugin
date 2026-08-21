@@ -9,10 +9,11 @@ implement a model — it *wraps* the DeepSeek Harness (`dsh`) CLI so Claude can
 plan and verify while DeepSeek V4 writes code inside a sandbox, under a
 `PreToolUse` guard that refuses to start unless it can prove it is working.
 
-Two different things are called `dsh`. `/dsh:setup` and `/dsh:run` (with the
-colon) are this plugin's commands. Bare `dsh` is the harness CLI, installed
-separately via npm. `README.md` covers install and the trust model in depth;
-this file covers working *on* the code.
+Two different things are called `dsh`. `/dsh:setup`, `/dsh:run`, `/dsh:test`,
+`/dsh:update` and `/dsh:tools-check` (with the colon) are this plugin's
+commands and skills. Bare `dsh` is the harness CLI, installed separately via
+npm. `README.md` covers install and the trust model in depth; this file covers
+working *on* the code.
 
 ## Commands
 
@@ -27,6 +28,13 @@ node --test --test-name-pattern "canary" plugins/dsh/scripts/canary.test.mjs
 # Does the local setup work? Reports node/platform, shell, hook bridge, key,
 # models, balance. Writes nothing. Reach for this first when a run fails oddly.
 node plugins/dsh/scripts/setup-deepseek.mjs --verify-only
+
+# Does the whole thing still WORK? The above plus the generated guard, the
+# canary, and one real delegation briefed to attempt two refused calls. Costs
+# about a cent and is the only check that proves the block path. Run it after
+# any change to the guard, the generator or the wrapper.
+node plugins/dsh/scripts/dsh-doctor.mjs
+node plugins/dsh/scripts/dsh-doctor.mjs --no-spend   # static tier only
 
 # Compose a run's artifacts and stop, spending nothing. The fastest way to see
 # what a flag actually produces.
@@ -69,6 +77,19 @@ makes a run look guarded while being unguarded. That single fact is why the
 guard is copied inside the workspace (step 4) and why the canary exists (step 5).
 There is no flag to skip the canary and none should be added.
 
+**A probe only certifies the shape it sends.** The canary now fires three: a
+frozen write spelled with `/`, the same file spelled with `\`, and a call that
+must be ALLOWED. Each was added after a live run found something the previous
+set walked past — a direct spawn that skipped the shell, a fail-closed hook form
+that made "blocks everything" look healthy, and a path matcher that only spoke
+`/`. When the doctor's live tier finds a new one, add a probe rather than only a
+test.
+
+**Caller-supplied values reach `gen-hooks` as `--opt=value`.** A repo's deny
+entry may legitimately start with `-` (`-m integration`), and the space-separated
+form makes `parseArgs` reject it, killing the run with an error that names the
+wrong culprit.
+
 **A tool missing from the matcher is never hooked.** `hooks.json` carries one
 `PreToolUse` matcher; the guard's `switch` handles tool names. If the two
 disagree, the guard's handling of that tool is dead code and the rule it
@@ -109,6 +130,16 @@ boundary.
 Windows is a primary target and the reason most of this code is Node. Every item
 below was a real, shipped bug; none is theoretical.
 
+- **A path arriving with backslashes matches nothing.** Every matcher in the
+  guard speaks `/`: `pathGlobToRe` uses `[^/]`, `pathDenied` splits on `/`, the
+  frozen rule tests `endsWith('/' + basename)`. dsh's `write` tool sends an
+  ABSOLUTE `file_path`, so on Windows a frozen `contract.txt` arrived as
+  `C:\...\contract.txt` and the guard returned exit 0 — the frozen rule and
+  every `denyPath` rule were silently off for absolute paths. Measured
+  2026-08-21 by `dsh-doctor`'s first live run; the 2026-08-20 check passed only
+  because that delegate happened to send a relative path. Paths are normalised
+  once at the boundary (`slash()`), never per matcher; `guard-paths.test.mjs`
+  pins it. Anything new that compares a path must go through that boundary.
 - **dsh runs command hooks through `ctx.shell`, which is PowerShell on Windows.**
   A `.sh` hook cannot execute there, exits non-2, and is treated as
   non-blocking — so every protection was off, on every Windows run, while the

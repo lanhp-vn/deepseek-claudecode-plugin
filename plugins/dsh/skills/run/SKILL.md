@@ -36,11 +36,15 @@ per-token API.
 ## Running one
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/deepseek-run.mjs -C "$PWD" -m flash \
+node ${CLAUDE_PLUGIN_ROOT}/scripts/deepseek-run.mjs -C "$PWD" \
   --frozen tests/test_importer.py \
   --allow-test "uv run --with pytest python -m pytest" \
   -f /tmp/brief.md
 ```
+
+**No `-m`: `pro` is the default and the standing choice here.** `deepseek-run.mjs`
+defaults to `pro` and writes `deepseek-v4-pro` into the run's patch, so a
+delegation you launch without thinking about the model gets the good one.
 
 `${CLAUDE_PLUGIN_ROOT}` is not set in an ordinary shell, so when running these
 through Bash resolve the cache path instead:
@@ -72,13 +76,13 @@ it because the default works today.
 | Flag | Meaning |
 |---|---|
 | `-C <dir>` | repo to work in; also the sandbox's workspace root |
-| `-m pro\|flash` | model; `flash` for mechanical work, `pro` for genuine reasoning |
+| `-m pro\|flash` | model. **Defaults to `pro`, and `pro` is the house choice** — pass nothing. `flash` is an explicit opt-out for bulk mechanical work, never something to drift into |
 | `--frozen <path>` | repeatable; these files cannot be written (see the guard) |
 | `--allow-test "<cmd>"` | the only shell command the delegate may run |
 | `-f <file>` | brief from a file; avoids shell-quoting fights |
 | `--dry-run` | compose the run artifacts and stop, without spending anything |
 | `--overlay <file>` | repeatable; an extra cordis patch layer |
-| `--no-overlay` | skip the base and repo overlays; base composition only |
+| `--no-overlay` | skip `00-base.yml` **and** the repo overlay. Only pays off when the repo HAS an overlay to skip — see below |
 | `--deny-path <glob>` | repeatable; a path the delegate may not read or write |
 | `--deny-cmd <pattern>` | repeatable; a command it may not run, in bash OR a PTY |
 | `--deny-tool <name>` | repeatable; a tool it may not call — the only rule reaching MCP |
@@ -102,7 +106,16 @@ one. Copy a starting point from `${CLAUDE_PLUGIN_ROOT}/examples/`.
 
 This is a cost decision as much as a tidiness one: **an MCP server's tool
 schemas are paid on every request** in the prompt prefix, so a markdown job must
-not carry the code graph a refactor needs. Pass `--no-overlay` for prose work.
+not carry the code graph a refactor needs. Pass `--no-overlay` for prose work in
+a repo that HAS an overlay.
+
+**`--no-overlay` costs you something in a repo that has none.** Measured
+2026-08-21 with two dry runs: it also drops `overlays/00-base.yml`, whose entire
+content disables `session-title-llm` — a billed LLM request issued on every run
+purely to name a session nothing reads. In a repo with no `.deepseek/overlay.yml`
+the flag therefore mounts exactly the same tools either way and buys back one
+pointless request per run. Reach for it to skip a *language server*, not as
+generic prose hygiene.
 
 **Machine-specific values.** An interpreter path or a board address would make
 `overlay.yml` per-machine and therefore uncommittable, so it writes
@@ -262,14 +275,19 @@ neither 0 nor 2. That is the backstop behind the canary.
 
 DeepSeek bills per token with no subscription, so waste shows up on the invoice.
 It is cheaper than the caution suggests: **seven delegations during one
-afternoon's testing cost three cents in total**, about half a cent each on
-`flash`. The point of the discipline below is not pennies, it is not being
+afternoon's testing cost three cents in total**, about half a cent each — that
+measurement was on `flash`, so budget roughly three times it now that `pro` is
+the default. The point of the discipline below is not pennies, it is not being
 surprised.
 
-**Match the model to the job.** `pro` costs about 3x `flash` per token. Use
-`-m flash` for mechanical work: renames, boilerplate, format conversion,
-straightforward tests. Keep `-m pro` for genuine reasoning. Both carry a 1M
-context window, so `flash` is not a "small" model.
+**`pro` is the default and stays the default.** It costs about 3x `flash` per
+token, and that is the trade this project has chosen: a wrong implementation
+costs a review cycle and a re-run, which is worth more than the token
+difference on the kind of work delegated here. `-m flash` still exists and is a
+reasonable *explicit* choice for genuinely mechanical bulk — renames, format
+conversion, boilerplate — but it is an opt-out, not the resting state. Both
+carry a 1M context window, so `flash` is not a "small" model; `dsh-doctor` uses
+it for the self-test because that run proves plumbing, not reasoning.
 
 **Reasoning tokens bill at the output rate and usually dominate.** One measured
 19-step run spent 16,526 reasoning tokens out of 19,836 output. On a short
