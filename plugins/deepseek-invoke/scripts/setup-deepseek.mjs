@@ -72,6 +72,39 @@ export function scaffoldMachine (home) {
   return { path: f, created: true }
 }
 
+// WITHOUT THESE TWO, EVERY DELEGATION DIES AT BOOT. The wrapper's patch.yml
+// inserts a `hooks-cc` row naming @deepseek-ai/dsh-hooks-claude-code -- that
+// row is what mounts the guard at all -- and dsh refuses to start when the
+// package is not in the profile ("Cannot find package", exit 1 in about a
+// second). dsh-hook-protocol is its peerDependency, which pnpm does NOT install
+// on its own, and the declared peer range (^0.0.1-rc.5) is unsatisfiable
+// because npm's latest is 0.0.1-rc.1; pnpm warns and installs rc.1, which works.
+//
+// A bare `npm i -g @deepseek-ai/dsh` ships NEITHER. This is the single most
+// likely reason a fresh install fails, so the doctor names it.
+export const HOOK_BRIDGE = Object.freeze([
+  '@deepseek-ai/dsh-hooks-claude-code',
+  '@deepseek-ai/dsh-hook-protocol',
+])
+
+export const HOOK_BRIDGE_FIX =
+  `dsh plugin --profile headless add ${HOOK_BRIDGE.join(' ')}`
+
+/**
+ * Is the hook bridge present in the headless profile? Returns the missing
+ * packages rather than a bare boolean, so the caller can name them.
+ */
+export function checkHookBridge (dshHome) {
+  const pkg = join(dshHome, 'profiles', 'headless', 'package.json')
+  if (!existsSync(pkg)) return { ok: false, missing: [...HOOK_BRIDGE], reason: 'no headless profile yet' }
+  let deps = {}
+  try { deps = JSON.parse(readFileSync(pkg, 'utf8')).dependencies ?? {} } catch {
+    return { ok: false, missing: [...HOOK_BRIDGE], reason: `could not read ${pkg}` }
+  }
+  const missing = HOOK_BRIDGE.filter((r) => !(r in deps))
+  return { ok: missing.length === 0, missing, reason: missing.length ? 'missing from the headless profile' : '' }
+}
+
 /** Write a file only the owner can read, without a world-readable window. */
 function writePrivate (path, content) {
   mkdirSync(dirname(path), { recursive: true })
@@ -120,6 +153,17 @@ async function main (argv) {
   // which cannot execute a .sh -- the reason the guard is .mjs and the hook
   // command names the interpreter.
   info(`dsh will run hooks through ${platform() === 'win32' ? 'PowerShell' : 'sh'}`)
+
+  // Check the hook bridge BEFORE touching the key: a missing bridge makes every
+  // delegation fail no matter how good the credentials are.
+  const dshHome = process.env.DSH_HOME ?? join(home, '.dsh')
+  const bridge = checkHookBridge(dshHome)
+  if (bridge.ok) ok('hook bridge present in the headless profile (the guard can mount)')
+  else {
+    console.error(`${red('  MISSING')} the guard cannot mount: ${bridge.missing.join(', ')} (${bridge.reason})`)
+    console.error(`          every delegation would fail at boot. Fix with:`)
+    console.error(`            ${HOOK_BRIDGE_FIX}`)
+  }
 
   const { key, src } = findKey(o, process.env, home)
   if (!key) die('no key found. Pass --key sk-... or --from <file>, or set $DEEPSEEK_API_KEY', 3)
@@ -175,7 +219,6 @@ async function main (argv) {
   // workspace-write confines mutations rather than reads. A deliberate `cat`
   // still reaches it.
   if (o.dsh) {
-    const dshHome = process.env.DSH_HOME ?? join(home, '.dsh')
     const cred = join(dshHome, '.credentials.yaml')
     let others = ''
     if (existsSync(cred)) {

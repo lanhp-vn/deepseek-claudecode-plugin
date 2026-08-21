@@ -13,10 +13,29 @@ working.
 If the marketplace add fails and you want the clone kept for inspection, set
 `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` first.
 
-Requires **Node 20+** (24 recommended) and, for the default backend,
+Requires **Node `^22.19.0 || >=24`** and, for the default backend,
 [`dsh`](https://github.com/deepseek-ai/deepseek-harness):
-`npm i -g @deepseek-ai/dsh`. The plugin itself has **no runtime dependencies** —
-nothing to install, nothing that can be missing.
+
+```sh
+npm i -g @deepseek-ai/dsh                      # the harness
+npm i -g pnpm                                  # needed by `dsh plugin ... add`
+dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-ai/dsh-hook-protocol
+```
+
+**That third line is not optional.** A bare `dsh` install ships neither package,
+and the wrapper mounts the guard by inserting a row naming the first one — dsh
+exits 1 at boot with `Cannot find package` when it is missing, so *every*
+delegation fails rather than some. `dsh-hook-protocol` is its peerDependency,
+which pnpm does not install on its own. `--verify-only` checks for both and
+names what is missing.
+
+The plugin itself has **no runtime dependencies** — nothing to install, nothing
+that can be missing. That is deliberate: Claude Code does *not* install a
+plugin's node dependencies into its cache (verified 2026-08-20 — `import('yaml')`
+from the cache fails with `ERR_MODULE_NOT_FOUND`).
+
+Full walkthrough, and a prompt that installs and configures this for you:
+[`ONBOARDING.md`](ONBOARDING.md).
 
 ## Why this exists in Node
 

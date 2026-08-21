@@ -42,9 +42,23 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/deepseek-run.mjs -C "$PWD" -m flash \
   -f /tmp/brief.md
 ```
 
-Setup, once per machine: `/deepseek-setup` (or
-`node ${CLAUDE_PLUGIN_ROOT}/scripts/setup-deepseek.mjs --key sk-... --dsh`).
-The key is never printed — every message shows a masked fingerprint.
+`${CLAUDE_PLUGIN_ROOT}` is not set in an ordinary shell, so when running these
+through Bash resolve the cache path instead:
+`~/.claude/plugins/cache/nouslogic/deepseek-invoke/*/scripts/`.
+
+Setup, once per machine: `/deepseek-setup`. The key is never printed — every
+message shows a masked fingerprint.
+
+**A bare `dsh` install cannot mount the guard.** The wrapper inserts a row
+naming `@deepseek-ai/dsh-hooks-claude-code`, and dsh exits 1 at boot with
+`Cannot find package` when it is absent — every delegation fails, not some. Once
+per machine:
+
+```bash
+dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-ai/dsh-hook-protocol
+```
+
+`--verify-only` checks this and names what is missing.
 
 | `--backend` | What runs | Use it when |
 |---|---|---|

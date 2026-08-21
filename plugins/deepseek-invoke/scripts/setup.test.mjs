@@ -63,3 +63,46 @@ test('machine.yml is created under a 0700 directory', { skip: platform() === 'wi
   scaffoldMachine(home)
   assert.equal(statSync(join(home, '.deepseek')).mode & 0o777, 0o700)
 })
+
+// --- the hook bridge -------------------------------------------------------
+// Without these two packages in the headless profile, the wrapper's patch.yml
+// inserts a hooks-cc row naming a package dsh cannot resolve, and EVERY
+// delegation dies at boot. A bare `npm i -g @deepseek-ai/dsh` ships neither,
+// so this is the most likely reason a fresh install fails.
+import { mkdirSync } from 'node:fs'
+import { checkHookBridge, HOOK_BRIDGE, HOOK_BRIDGE_FIX } from './setup-deepseek.mjs'
+
+const profile = (deps) => {
+  const d = mkdtempSync(join(tmpdir(), 'dsh-'))
+  mkdirSync(join(d, 'profiles', 'headless'), { recursive: true })
+  writeFileSync(join(d, 'profiles', 'headless', 'package.json'), JSON.stringify({ dependencies: deps }))
+  return d
+}
+
+test('a complete profile passes', () => {
+  const d = profile(Object.fromEntries(HOOK_BRIDGE.map((p) => [p, '0.0.1'])))
+  assert.equal(checkHookBridge(d).ok, true)
+})
+
+test('a missing hook bridge is reported BY NAME', () => {
+  const r = checkHookBridge(profile({ '@deepseek-ai/dsh-lsp': '0.0.1' }))
+  assert.equal(r.ok, false)
+  assert.deepEqual(r.missing, [...HOOK_BRIDGE])
+})
+
+test('a partial bridge names only what is missing', () => {
+  const r = checkHookBridge(profile({ '@deepseek-ai/dsh-hooks-claude-code': '0.0.1-rc.5' }))
+  assert.equal(r.ok, false)
+  assert.deepEqual(r.missing, ['@deepseek-ai/dsh-hook-protocol'])
+})
+
+test('no profile at all is NOT ok -- a fresh dsh install ships neither', () => {
+  const r = checkHookBridge(mkdtempSync(join(tmpdir(), 'dsh-')))
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /no headless profile/)
+})
+
+test('the fix is a runnable command naming both packages', () => {
+  assert.match(HOOK_BRIDGE_FIX, /^dsh plugin --profile headless add /)
+  for (const p of HOOK_BRIDGE) assert.ok(HOOK_BRIDGE_FIX.includes(p))
+})
