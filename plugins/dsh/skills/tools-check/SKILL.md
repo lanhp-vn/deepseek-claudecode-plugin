@@ -96,7 +96,20 @@ mount everything once. Three consequences worth telling the user plainly:
 | Long-lived interactive processes | the terminal/PTY packages | `terminal_send` carries shell input in `text`, and a PTY widens what `--allow-test` has to police |
 
 Check that any binary you propose is actually installed, and that the harness
-package is in `$DSH_HOME/profiles/headless/package.json`. A missing value behind
+package actually **resolves**.
+
+**Reading `package.json` alone under-reports what is available.** It lists only
+what someone explicitly added to the profile — but Node resolves up the
+directory tree, so packages shipped inside the global `dsh` install resolve from
+the profile too. Measured 2026-08-21: `package.json` named only the two
+hook-bridge packages, yet `@deepseek-ai/dsh-mcp-client` and
+`@deepseek-ai/dsh-terminal` both resolved, while `@deepseek-ai/dsh-lsp` genuinely
+did not. A run that checked the manifest alone concluded, wrongly, that mounting
+an MCP client "would fail at boot". Resolve the name from
+`$DSH_HOME/profiles/headless` (`import.meta.resolve`, or `dsh --profile headless
+--dump-config`) before reporting a package as absent.
+
+A missing value behind
 `${machine.*}` is a hard failure naming the key — the good outcome — but a bare
 command name that is absent mounts a server that silently does nothing. When the
 server is not installed and the binary is not there, "mount nothing" is the
@@ -145,12 +158,16 @@ pytest` blocks the one command the delegate is permitted to run. Before adding a
 path deny, read it against the `--allow-test` command: if the literal appears
 there, the two rules are in conflict and the path deny wins.
 
-The nastier form: the literal can collide with the **workspace path itself**. In
-a checkout called `docs-site-iter2`, the obvious `denyPath: ["site/**"]` for the
-mkdocs build directory blocked every command naming a file in the repo — the
-segment `site` appears in the directory name. Test a proposed deny against the
-real guard before committing it; a path deny that reads as tidy housekeeping can
-take the whole run down.
+The nastier form: the scan uses the **longest glob-free segment**, so a short
+segment collides widely. `denyPath: ["site/**"]` reduces to the literal `site`
+and then blocks any command whose text contains it. Measured 2026-08-21:
+`grep -n site_name mkdocs.yml` went from exit 0 to exit 2 on that one line, and
+in a checkout named `docs-site-iter2` every command spelling out the workspace
+path went with it. Commands that happen not to contain the segment (`python
+scripts/check_links.py`) still run, which is what makes this intermittent and
+baffling rather than obviously broken. Test a proposed deny against the real
+guard before committing it: a path deny that reads as tidy housekeeping can take
+unrelated commands down with it.
 
 ## Pass 4 — propose, then write
 
