@@ -13,7 +13,8 @@
 # 2. ITS OWN CONTROLS DO NOTHING. GITNEXUS_MCP_READ_ONLY and
 #    GITNEXUS_MCP_ALLOWED_REPOS are read by NOTHING in gitnexus 1.6.9 -- zero
 #    hits in its dist, verified 2026-08-19 -- even though both appear in some
-#    Claude Code MCP configs. Setting them buys nothing.
+#    Claude Code MCP configs. Setting them here would be protective-looking
+#    decoration.
 #
 # 3. THE MUTATORS ARE DENIED FOR YOU. gitnexus registers `rename`, `cypher` and
 #    `group_sync`, which MUTATE the graph. Claude Code refuses them via
@@ -22,17 +23,23 @@
 #    automatically, whether or not you mount this. You do not need to repeat
 #    them in policy.yml.
 #
+# The model sees the server's tools as `mcp__gitnexus__<rawName>` -- the same
+# server-qualified shape Claude Code and Codex use, which is why the floor's
+# deny-tool entries are spelled that way.
+#
 # ${machine.gitnexus_bin} resolves from ~/.deepseek/machine.yml. The binary path
 # is machine-specific, which is exactly why it is not written here.
+#
+# Config keys verified against packages/mcp/mcp-client/README.md at harness
+# commit 47f9438 (see references/deepseek-harness in the plugin repo).
 - insert:
-    - id: mcp
-      name: '@deepseek-ai/dsh-mcp'
     - id: mcp-gitnexus
       name: '@deepseek-ai/dsh-mcp-client'
       config:
-        servers:
-          gitnexus:
-            command: ${machine.gitnexus_bin}
-            args: ['mcp']
-    - id: tool-mcp
-      name: '@deepseek-ai/dsh-tool-mcp'
+        serverName: gitnexus
+        transport: stdio
+        command: ${machine.gitnexus_bin}
+        args: ['mcp']
+        # A missing or stale index degrades to grep rather than killing the run.
+        failOnStartupError: false
+        toolCallTimeoutMs: 60000
