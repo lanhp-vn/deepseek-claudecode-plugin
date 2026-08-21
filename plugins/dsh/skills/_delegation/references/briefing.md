@@ -24,18 +24,67 @@ An implementer is only as good as the brief. A good brief is a spec, not a wish.
 ## The skeleton
 
 ```
-Task: <what to build, in one or two sentences>
+Outcome: <the state of the world once this is done, in one or two sentences --
+         the result, not a list of steps for reaching it>
 
 Make this pass:  <exact command, e.g. `pytest tests/test_importer.py -q`>
 Tests live in:   <path> -- these are FROZEN. Do not edit them. If a test looks
                  wrong, stop and explain instead of changing it.
 
 You may edit:    <files/dirs in scope>
-Constraints:     Follow existing patterns in <ref file>. No new dependencies
-                 unless you note it. Keep the diff minimal.
+Follow:          <ref file> -- match its existing patterns rather than
+                 introducing new ones
+Unchanged:       <only what the command above cannot see: public signatures,
+                 exact output strings, dependencies, files that must not move>
+Stop and report instead of continuing if: <the contract looks unsatisfiable |
+                 the fix needs something outside the scope above>
 
-Before you finish: run the command above, confirm it's green, then summarize
-what you changed and why.
+Done means: <command> is green, `git status --short` shows only <scope>, and
+your summary <the one claim you want it to have checked before it says done>.
+```
+
+That is OpenAI's own framing — goal (`Outcome`), context (`Follow`), output
+(`Make this pass`), boundaries (`You may edit` / `Unchanged` / `Stop`), plus a
+completion check (`Done means`) — at
+<https://learn.chatgpt.com/docs/prompting>. The two slots briefs here kept
+omitting are **Stop** and **Unchanged**, and they are the two a frozen test
+cannot express on its own.
+
+`Follow:` is not filler. An implementer given no house style invents one: asked
+to tidy a plain-Python module with nothing pointed at, Sol added type annotations
+to every public signature — correct, unrequested, and now yours to review.
+
+## Bound what the check cannot see — and nothing else
+
+`Unchanged:` is not a place to restate the contract. The command in `Make this
+pass:` already pins everything it asserts, and saying those things a second time
+in prose buys nothing: measured on Codex/Sol, a brief that spelled out in
+sentences what the frozen test already asserted produced a **byte-identical
+diff** for 2.5x the output tokens (`codex-invoke/SKILL.md`, *Briefing Sol*).
+
+So fill `Unchanged:` only with what the command is blind to:
+
+- public signatures and return types the test never calls,
+- exact output strings the test never compares,
+- files and directories that must not move, and dependencies that must not appear,
+- formatting or style the test cannot fail on.
+
+The test is the bound wherever it reaches. Prose is for the rest, and a brief
+that keeps the two from overlapping stays short without getting vaguer.
+
+## Give it a stop condition
+
+`Stop and report instead of continuing if:` is the slot most briefs here were
+missing, and it is one line. Without it, an implementer that cannot satisfy the
+contract has no sanctioned exit, so it keeps trying — which is how an
+unsatisfiable test turns into a long run and a creative workaround instead of a
+sentence telling you the contract is wrong.
+
+Name the conditions you would want to hear about *before* the diff exists:
+
+```
+Stop and report instead of continuing if the frozen test looks unsatisfiable,
+or if the fix seems to require changing anything outside <scope>.
 ```
 
 ## Put the trap in the test's docstring, then point the brief at it
