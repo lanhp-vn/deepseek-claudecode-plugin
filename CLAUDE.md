@@ -113,6 +113,19 @@ below was a real, shipped bug; none is theoretical.
   A `.sh` hook cannot execute there, exits non-2, and is treated as
   non-blocking — so every protection was off, on every Windows run, while the
   config looked perfect. Never emit a shell-script hook.
+- **PowerShell does not adopt a native command's exit code as its own.** `node
+  guard.mjs` exiting 2 leaves the hook process exiting 1, which the protocol
+  treats as non-blocking, so **every block becomes an allow**. The generated
+  command must end `; if ($LASTEXITCODE -ne 0) { exit 2 }` on win32 — `exit 2`,
+  not `exit $LASTEXITCODE`, so a crash (1) or a missing interpreter (`$null`)
+  blocks too. Never emit that suffix for a POSIX shell, where `$LASTEXITCODE` is
+  empty and `exit ` exits 0 — the same fail-open in the other direction.
+- **A security probe must cross every layer production crosses.** The canary
+  spawned the guard directly and so certified a path the harness never uses; it
+  missed both the matcher gap and the exit-code collapse. It now runs the real
+  command string from `hooks.json` through the real shell, and probes a call that
+  must be allowed as well as one that must be blocked — because a fail-closed
+  hook form makes a *broken* guard pass a block-only probe.
 - **`spawnSync` on a bare npm-installed CLI name is ENOENT on Windows.** npm
   installs `foo`, `foo.cmd` and `foo.ps1` but no `foo.exe`, and Node does no
   PATHEXT resolution without `shell: true`; naming the `.cmd` directly is EINVAL

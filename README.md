@@ -188,14 +188,28 @@ Nothing has been spent.
 **There is no flag to skip it, and none should be added.** It is the check that
 would have caught both that incident and the Windows fail-open.
 
-**It proves one half.** The probe is a frozen-path write, so it certifies the
-frozen rule; it never exercises the command allowlist, and the two halves fail
-independently. Measured 2026-08-20: with `pwsh` missing from the matcher, the
-canary reported the boundary live on a Windows run whose `--allow-test` was
-enforcing nothing at all. Until the probe covers both halves, the honest
-cross-check is in the run report — the guard-decision count should match the
-count of matched tool calls, and shell calls slipping past show up as a
-disagreement between the two.
+**It has to probe the real path, and it has to probe twice.** Both lessons were
+paid for on 2026-08-20:
+
+- It used to spawn `node <guard>` directly. dsh runs hooks **through
+  PowerShell**, which does not adopt a native command's exit code — so the guard
+  exited 2, the hook process exited 1, every block was delivered as an allow, and
+  the canary reported the boundary live because its own spawn never crossed the
+  shell. It now runs the exact command from the generated `hooks.json`, through
+  the shell dsh will use.
+- It used to probe only a call that must be **blocked**. The Windows hook form is
+  fail-closed, so a guard that is missing, unparseable or policy-less blocks
+  *everything* and passes a block-only probe while being non-functional. It now
+  also probes a call that must be **allowed**.
+
+That second point changes a behaviour: a guard with no `policy.json` used to read
+as a live boundary, because it fails closed. It now aborts. Safe but useless is
+still a failure — such a guard refuses every tool call, so you pay for a run in
+which the delegate can do nothing.
+
+The independent cross-check, still worth doing, is in the run report: the
+guard-decision count should match the matched tool-call count, and calls slipping
+past unhooked show up as a disagreement.
 
 ## What the guard does not do
 

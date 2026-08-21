@@ -119,11 +119,41 @@ if (values['deny-path'].length || values['deny-cmd'].length) parts.push('termina
 // dialects accept.
 parts.push(...values['deny-tool'])
 
+// WHY THE WINDOWS FORM CARRIES AN EXPLICIT `exit`. dsh runs command hooks
+// through ctx.shell, which is PowerShell on Windows, and PowerShell does NOT
+// adopt a native command's exit code as its own. `node guard.mjs` exiting 2 left
+// the PowerShell process exiting 1 -- and 1 is a NON-BLOCKING error, so every
+// BLOCK was delivered to the harness as an ALLOW.
+//
+// Measured 2026-08-20: a delegate briefed to edit a frozen test had the edit
+// refused by the guard, printed `BLOCKED`, and wrote the file anyway. The run
+// report's guard-health warning caught it; the canary did not, because it spawns
+// the guard directly and never crosses the shell. Verified with clean payloads:
+// plain form gives blocked -> 1, this form gives blocked -> 2, and an allowed
+// call stays 0 under both.
+//
+// The test is `-ne 0`, not `-eq 2`, so it is fail-CLOSED: a guard that crashes
+// (syntax error, exit 1) or cannot be found at all (`$LASTEXITCODE` is `$null`,
+// and `$null -ne 0` is true) BLOCKS rather than allows. Verified for all four
+// cases.
+//
+// This must NOT be emitted for a POSIX shell, where `$LASTEXITCODE` is empty and
+// `exit ` would exit 0 -- the same fail-open, in the other direction. There, the
+// shell already propagates the last command's status.
+// `exit 2`, NOT `exit $LASTEXITCODE`: the latter re-opens the hole it is meant
+// to close, because a crash (1) is then delivered as non-blocking and a missing
+// interpreter (`$null`) becomes `exit 0`. The guard only ever exits 0 or 2 by
+// design, so any other code is a malfunction, and a malfunctioning security
+// check must block.
+export const hookCommandFor = (guard) => (process.platform === 'win32'
+  ? `node ${JSON.stringify(guard)}; if ($LASTEXITCODE -ne 0) { exit 2 }`
+  : `node ${JSON.stringify(guard)}`)
+
 writeFileSync(join(out, 'hooks.json'), JSON.stringify({
   hooks: {
     PreToolUse: [{
       matcher: parts.join('|'),
-      hooks: [{ type: 'command', command: `node ${JSON.stringify(guardDest)}` }],
+      hooks: [{ type: 'command', command: hookCommandFor(guardDest) }],
     }],
   },
 }, null, 2) + '\n')

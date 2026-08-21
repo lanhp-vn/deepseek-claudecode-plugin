@@ -180,13 +180,26 @@ Two things fix it, and neither has an override:
 **Never add a flag that skips the canary.** It is the check that would have
 caught both the 2026-08-15 incident and the Windows fail-open below.
 
-**But know what the canary proves.** It probes a frozen-path write, so it
-certifies the *frozen* half of the boundary. It does not exercise the command
-allowlist, and the two halves fail independently: measured 2026-08-20, a matcher
-missing `pwsh` left `--allow-test` wholly unenforced on Windows while the canary
-still printed *the boundary is live*. The cheap cross-check is in the run report
-— compare the guard-decision count against the tool-call count. If shell calls
-are not being hooked, those two numbers disagree.
+**But know what the canary proves, and what it recently did not.** Two failures
+on 2026-08-20 both slipped past it and both are now fixed:
+
+- it spawned `node <guard>` **directly**, while dsh runs hooks through
+  PowerShell, which does not adopt a native exit code. The guard exited 2, the
+  hook exited 1, every block became an allow — and the canary saw none of it,
+  because its own spawn skipped the shell. It now runs the exact command from the
+  generated `hooks.json`, through the shell dsh will use.
+- it probed only a call that must be **blocked**. Since the Windows form is
+  fail-closed, a broken guard blocks everything and passes such a probe while
+  doing nothing useful. It now also probes a call that must be **allowed**, so a
+  guard that cannot discriminate aborts the run instead of starting it.
+
+A knock-on: a guard with no `policy.json` used to be reported as a live boundary
+(it fails closed). It now aborts — safe but useless is still a failure, because
+it refuses every tool call and you pay for the run regardless.
+
+Independent of the canary, the cheap cross-check is in the run report: compare
+the guard-decision count against the tool-call count. If calls are not being
+hooked, those two numbers disagree.
 
 ### The Windows fail-open this plugin exists to fix
 
@@ -207,12 +220,26 @@ command that was never whitelisted. The lesson generalises past this one name:
 carefully the guard handles it. `hooks-matcher.test.mjs` now fails if the matcher
 and the guard's switch ever disagree again.
 
+And a third time, the worst of them: **the guard's exit 2 did not survive the
+shell.** PowerShell does not adopt a native command's exit code as its own, so
+`node guard.mjs` exiting 2 left the hook process exiting 1 — non-blocking — and
+every `BLOCKED` reached the harness as an ALLOW. A delegate briefed to fix a
+frozen test had its edit refused and wrote the file anyway. The generated command
+is now `node "<guard>"; if ($LASTEXITCODE -ne 0) { exit 2 }` on win32 only, with
+`exit 2` rather than `exit $LASTEXITCODE` so that a crash or a missing
+interpreter blocks too. On POSIX the bare form is correct and the PowerShell form
+would be actively dangerous (`$LASTEXITCODE` is empty, so `exit ` exits 0).
+
 Two further Windows traps live in the wrapper rather than the guard, and both
 stopped a run before it began rather than weakening one: `spawnSync` on a bare
 npm-installed CLI name is ENOENT (no `.exe`, and Node does no PATHEXT
 resolution), and a Windows path interpolated into a *double*-quoted YAML scalar
 makes the backslash open an escape. Resolve the package `bin` and spawn
 `process.execPath`; single-quote paths in generated YAML.
+
+The pattern across all four: **on Windows this system fails silently and looks
+correct.** Nothing here was found by reading the config. Each one needed a real
+run plus a check that compared what the log said against what actually happened.
 
 ## Verify against the log, not the summary
 
