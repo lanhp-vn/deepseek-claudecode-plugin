@@ -109,6 +109,51 @@ test('no brief is a usage error', async () => {
   assert.equal((await runWrapper(['-C', ws, '--dry-run', '--dry-run-dir', dryDir()])).code, 2)
 })
 
+// --------------------------------------------------------------------------
+// The approval gate and --no-overlay.
+//
+// A repo whose overlay has NEVER been approved on this machine: mkdtemp gives a
+// path no approvals.json can already carry, so these do not depend on what the
+// operator has approved, and none of them records an approval.
+// --------------------------------------------------------------------------
+const ovWs = mkdtempSync(join(tmpdir(), 'ov-'))
+execFileSync('git', ['-C', ovWs, 'init', '-q'])
+execFileSync('mkdir', ['-p', join(ovWs, '.deepseek')])
+writeFileSync(join(ovWs, '.deepseek', 'overlay.yml'),
+  "- insert:\n    - id: lsp\n      name: '@deepseek-ai/dsh-lsp'\n")
+
+test('an unapproved overlay refuses a normal run', async () => {
+  const r = await runWrapper(['-C', ovWs, '--dry-run', '--dry-run-dir', dryDir(), 'x'])
+  assert.equal(r.code, 2, 'capability never arrives silently with a clone')
+  assert.match(r.stderr, /REFUSED/)
+})
+
+// 2026-08-20: it did. Editing a repo's overlay re-arms the gate, and the next
+// prose delegation -- which mounts nothing from that overlay -- was refused
+// until someone approved a language server it would never load. That blocks the
+// exact path the docs recommend for markdown work, and the gate buys nothing
+// here: --no-overlay grants no capability, so there is none to consent to.
+test('--no-overlay does not consult the approval gate', async () => {
+  const r = await runWrapper(['-C', ovWs, '--no-overlay', '--dry-run', '--dry-run-dir', dryDir(), 'x'])
+  assert.doesNotMatch(r.stderr, /REFUSED/, 'an unmounted overlay cannot refuse the run')
+  assert.equal(r.code, 0, `--no-overlay runs unrefused (stderr: ${r.stderr.slice(0, 400)})`)
+})
+
+// Reporting the skip as "(approved)" would be a lie in the one place an
+// operator looks to find out what the run consented to.
+test('--no-overlay does not report the overlay as approved', async () => {
+  const r = await runWrapper(['-C', ovWs, '--no-overlay', '--dry-run', '--dry-run-dir', dryDir(), 'x'])
+  assert.doesNotMatch(r.stderr, /\(approved\)/, 'never claims an approval it did not check')
+})
+
+// --approve-overlay is how the gate is satisfied, so it must keep working on an
+// overlay that has not been approved yet.
+test('--no-overlay does not mount the repo overlay', async () => {
+  const d = dryDir()
+  await runWrapper(['-C', ovWs, '--no-overlay', '--dry-run', '--dry-run-dir', d, 'x'])
+  assert.equal(existsSync(join(d, 'repo-overlay.yml')), false, 'composed no repo overlay')
+})
+
 test('-h mentions both backends', async () => {
   const r = await runWrapper(['-h'])
   assert.equal(r.code, 0, '-h exits 0')

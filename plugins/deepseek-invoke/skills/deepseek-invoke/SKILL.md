@@ -131,6 +131,12 @@ over the raw bytes before substitution, so it is machine-independent, and it is
 keyed by absolute path — two clones are two decisions. Editing the overlay
 re-arms the gate.
 
+`--no-overlay` skips the gate along with the overlay, because a file that is
+never mounted grants nothing to consent to. The deny set is unaffected: a
+`--no-overlay` run still carries the floor and the repo's `policy.yml`. So the
+cheap prose path stays open on a repo whose overlay was just edited, instead of
+demanding approval for a language server it will not load.
+
 **Globs in these files must be quoted.** `- *.enc` is an *alias* in YAML and a
 real parser rejects it; write `- "*.enc"`.
 

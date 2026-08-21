@@ -139,6 +139,13 @@ The hash is over the raw bytes before substitution, so it is machine-independent
 and it is keyed by absolute path — two clones are two decisions. Editing the
 overlay re-arms the gate.
 
+`--no-overlay` bypasses the gate, because it mounts nothing out of the file and
+so acquires no capability to consent to. It does **not** bypass the deny set:
+the floor and the repo's `policy.yml` apply to every run either way. Without
+this, editing an overlay re-armed the gate for prose delegations too, and the
+documented cheap path for a docs-dominant repo was blocked behind approving a
+language server that run would never load.
+
 ## The canary
 
 Only exit 2 blocks a tool call. A guard that cannot execute exits 127, which the

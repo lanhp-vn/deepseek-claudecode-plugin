@@ -234,6 +234,7 @@ async function runDsh (r) {
   const seam = discoverSeam(repoRoot)
   const home = homedir()
   const patchFiles = []
+  let overlayNote = '(approved)'
 
   // 00-base.yml applies to every delegation and is config-only.
   if (!r.noOverlay) {
@@ -257,13 +258,22 @@ async function runDsh (r) {
       process.exit(0)
     }
 
-    // Capability must never arrive silently with a git clone.
-    if (!isApproved(store, repoRoot, hash)) {
-      console.error(refusalMessage({ overlayPath: seam.overlayPath, overlayText: raw, repoRoot }))
-      process.exit(2)
-    }
+    // --no-overlay mounts nothing out of this file, so no capability arrives
+    // and there is nothing for the gate to protect. Checking anyway had a real
+    // cost: editing an overlay re-arms the gate, and the next PROSE delegation
+    // -- the path the docs actually recommend in a docs-dominant repo -- was
+    // then refused until someone approved a language server it would never
+    // load (2026-08-20). Consent is owed for capability, not for a file's
+    // presence on disk.
+    if (r.noOverlay) {
+      overlayNote = '(skipped: --no-overlay)'
+    } else {
+      // Capability must never arrive silently with a git clone.
+      if (!isApproved(store, repoRoot, hash)) {
+        console.error(refusalMessage({ overlayPath: seam.overlayPath, overlayText: raw, repoRoot }))
+        process.exit(2)
+      }
 
-    if (!r.noOverlay) {
       let text
       try {
         text = substituteMachine(raw, loadMachine(home))
@@ -373,7 +383,7 @@ async function runDsh (r) {
   const announce = (prefix) => {
     console.error(`>>> deepseek-run: ${prefix}  model: ${modelId}  dir: ${r.dir}`)
     console.error(`>>> repo: ${repoRoot}`)
-    if (seam.overlayPath) console.error(`>>> seam: ${seam.overlayPath} (approved)`)
+    if (seam.overlayPath) console.error(`>>> seam: ${seam.overlayPath} ${overlayNote}`)
     if (seam.policyPath) console.error(`>>> seam: ${seam.policyPath}`)
     if (patchFiles.length) console.error(`>>> overlays: ${patchFiles.join(' ')}`)
     console.error(`>>> denied: ${pol.denyPath.length} paths, ${pol.denyCmd.length} commands, ${pol.denyTool.length} tools (see ${join(rundir, 'policy.json')})`)
