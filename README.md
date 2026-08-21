@@ -1,4 +1,4 @@
-# deepseek-invoke — a Nouslogic Claude Code plugin
+# dsh — a Nouslogic Claude Code plugin
 
 Claude plans, specifies and verifies. **DeepSeek V4 writes the implementation**,
 inside a sandbox, under a guard that refuses to start unless it can prove it is
@@ -6,9 +6,19 @@ working.
 
 ```
 /plugin marketplace add git@github.com:nouslogic/deepseek-claudecode-plugin.git
-/plugin install deepseek-invoke@nouslogic
-/deepseek-setup
+/plugin install dsh@nouslogic
+/dsh:setup
 ```
+
+Two things are called `dsh` here and they are not the same. `/dsh:setup` and
+`/dsh:run`, with the colon, are this plugin's commands. Bare `dsh` is the
+DeepSeek Harness CLI the plugin drives, installed separately below.
+
+**Upgrading from `deepseek-invoke` (1.0.1 and earlier):** the plugin was renamed
+in 2.0.0, and a plugin's name is its cache directory, so the old install cannot
+be upgraded in place. Run `/plugin uninstall deepseek-invoke@nouslogic`, then
+install as above. Your credentials are untouched — they live in `~/.deepseek/`
+and `$DSH_HOME`, not in the plugin cache, so there is no need to re-run setup.
 
 If the marketplace add fails and you want the clone kept for inspection, set
 `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` first.
@@ -188,7 +198,7 @@ git submodule update --init references/deepseek-harness
 Run the tests before changing anything under `skills/_delegation/`:
 
 ```bash
-cd plugins/deepseek-invoke/scripts && node --test *.test.mjs
+cd plugins/dsh/scripts && node --test *.test.mjs
 cd ../skills/_delegation/scripts && \
   BASH_GUARD=~/Documents/system-settings/skills/_delegation/scripts/delegation-guard.sh \
   NODE_GUARD=$PWD/delegation-guard.mjs node --test differential.test.mjs

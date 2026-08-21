@@ -1,7 +1,7 @@
 # `_delegation` — shared material for the delegation skills
 
 Not a skill. There is no `SKILL.md` here, so nothing in this directory can be
-triggered; it exists so that `agy-invoke`, `codex-invoke` and `deepseek-invoke`
+triggered; it exists so that `agy-invoke`, `codex-invoke` and `dsh:run`
 have **one home** for the discipline all three share.
 
 Before this directory existed, each skill restated the roles table, the briefing

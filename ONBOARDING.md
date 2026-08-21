@@ -1,4 +1,4 @@
-# Onboarding: the `deepseek-invoke` plugin
+# Onboarding: the `dsh` plugin
 
 For a Nouslogic teammate setting this up on a new machine.
 
@@ -41,7 +41,7 @@ beyond `node:` builtins would be broken on your machine.)
 
 ```
 /plugin marketplace add nouslogic/deepseek-claudecode-plugin
-/plugin install deepseek-invoke@nouslogic
+/plugin install dsh@nouslogic
 ```
 
 Both are private, so your GitHub account needs access to the `nouslogic` org.
@@ -80,14 +80,14 @@ npm's latest is `0.0.1-rc.1`. pnpm warns and installs rc.1, which works.
 ### 4. Your key
 
 ```
-/deepseek-setup
+/dsh:setup
 ```
 
 or directly. `$CLAUDE_PLUGIN_ROOT` is only set inside a plugin command, **not**
 in an ordinary shell, so use the cache path there:
 
 ```sh
-DS=~/.claude/plugins/cache/nouslogic/deepseek-invoke/*/scripts
+DS=~/.claude/plugins/cache/nouslogic/dsh/*/scripts
 node $DS/setup-deepseek.mjs --key sk-... --dsh
 ```
 
@@ -100,7 +100,7 @@ The key is never printed; every message shows a masked fingerprint.
 ### 5. Verify before you spend anything
 
 ```sh
-node ~/.claude/plugins/cache/nouslogic/deepseek-invoke/*/scripts/setup-deepseek.mjs --verify-only
+node ~/.claude/plugins/cache/nouslogic/dsh/*/scripts/setup-deepseek.mjs --verify-only
 ```
 
 Doctor mode. It reports Node's version and platform, which shell dsh will run
@@ -148,7 +148,7 @@ on. It installs, verifies, then reads your project and recommends what — if
 anything — that project should mount.
 
 ````
-You are setting up the `deepseek-invoke` Claude Code plugin on this machine and
+You are setting up the `dsh` Claude Code plugin on this machine and
 then advising me on how to configure it for THIS project. Work in two phases and
 stop for my confirmation between them.
 
@@ -162,7 +162,7 @@ needs the Claude Code slash-command interface (which you cannot invoke).
    `^22.19.0 || >=24`), `claude --version` (need >= 2.1.233), `git --version`.
    Stop and tell me if any is missing or too old.
 2. Tell me to run `/plugin marketplace add nouslogic/deepseek-claudecode-plugin`
-   and then `/plugin install deepseek-invoke@nouslogic`. Wait for me to confirm.
+   and then `/plugin install dsh@nouslogic`. Wait for me to confirm.
 3. Check whether `dsh` is on PATH. If not, tell me to run
    `npm i -g @deepseek-ai/dsh` and `npm i -g pnpm`, and warn that npm may install
    to a directory that is not on PATH.
@@ -174,16 +174,16 @@ needs the Claude Code slash-command interface (which you cannot invoke).
    Explain that a bare `dsh` install ships neither, that the wrapper mounts the
    guard by naming the first package, and that without them dsh exits 1 at boot
    with `Cannot find package` — every delegation fails, not just some.
-5. Tell me to run `/deepseek-setup` to install my API key. Never echo a key back
+5. Tell me to run `/dsh:setup` to install my API key. Never echo a key back
    to me; if I paste one into the conversation, tell me it is now in my
    transcript and that rotating it is cheap.
 6. Run the doctor yourself and show me its output. Note $CLAUDE_PLUGIN_ROOT is
    NOT set in an ordinary shell, so resolve the cache path:
-       node ~/.claude/plugins/cache/nouslogic/deepseek-invoke/*/scripts/setup-deepseek.mjs --verify-only
+       node ~/.claude/plugins/cache/nouslogic/dsh/*/scripts/setup-deepseek.mjs --verify-only
    Confirm: hook bridge present, key accepted, a non-zero balance, and which
    shell dsh will run hooks through on this platform.
 7. Prove the plugin's own code is sound before trusting it:
-       cd ~/.claude/plugins/cache/nouslogic/deepseek-invoke/*/scripts && node --test *.test.mjs
+       cd ~/.claude/plugins/cache/nouslogic/dsh/*/scripts && node --test *.test.mjs
    Report the pass/fail counts. Anything other than 0 failures is a stop.
 
 Then summarise what is installed and STOP. Ask me to confirm before Phase 2.
@@ -291,7 +291,7 @@ If anything about this project is ambiguous, ask me rather than assuming.
 Everything here is Node specifically so it works on native Windows, where dsh
 runs hooks through PowerShell and the old shell-script guard silently failed
 open. **That claim is not yet verified by a real run on Windows** — see
-`plugins/deepseek-invoke/skills/deepseek-invoke/references/dsh.md`, section
+`plugins/dsh/skills/run/references/dsh.md`, section
 "Windows: NOT YET VERIFIED", which lists the four checks that would settle it.
 If you are the first person to run this on Windows, record the result there.
 
@@ -299,7 +299,7 @@ If you are the first person to run this on Windows, record the result there.
 
 ```sh
 git submodule update --init references/deepseek-harness   # the pinned harness, reference only
-cd plugins/deepseek-invoke/scripts && node --test *.test.mjs
+cd plugins/dsh/scripts && node --test *.test.mjs
 UBUNTU_SETUP=~/Documents/system-settings node scripts/vendor-delegation.mjs --check
 ```
 

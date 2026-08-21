@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = join(here, '..')
-const dest = join(repo, 'plugins', 'deepseek-invoke', 'skills', '_delegation')
+const dest = join(repo, 'plugins', 'dsh', 'skills', '_delegation')
 const manifestPath = join(repo, 'VENDOR-MANIFEST.json')
 
 // VERBATIM prose only.

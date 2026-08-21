@@ -1,9 +1,9 @@
 ---
-name: deepseek-invoke
+name: run
 description: >-
   Use when the user wants Claude to plan, specify and verify while DeepSeek V4
   writes the implementation, the cheap-implementer half of the codex-invoke
-  pattern. Trigger whenever the user says "deepseek", "deepseek-invoke", "use
+  pattern. Trigger whenever the user says "deepseek", "dsh", "/dsh:run", "use
   deepseek to build/implement/write", "delegate to deepseek", "hand this to
   deepseek", "cheap implementer", "do this on deepseek instead", or asks to
   implement a written spec/plan/task-list on a budget. Also use when the user
@@ -16,7 +16,7 @@ description: >-
   expensive, or when the user has not asked to involve DeepSeek.
 ---
 
-# DeepSeek Invoke: you specify, DeepSeek implements
+# `/dsh:run` — you specify, DeepSeek implements
 
 You are the **tech lead**. DeepSeek is a **cheap, capable implementer**. You
 plan, write the tests that define "done", hand over a brief, then review and run
@@ -44,9 +44,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/deepseek-run.mjs -C "$PWD" -m flash \
 
 `${CLAUDE_PLUGIN_ROOT}` is not set in an ordinary shell, so when running these
 through Bash resolve the cache path instead:
-`~/.claude/plugins/cache/nouslogic/deepseek-invoke/*/scripts/`.
+`~/.claude/plugins/cache/nouslogic/dsh/*/scripts/`.
 
-Setup, once per machine: `/deepseek-setup`. The key is never printed — every
+Setup, once per machine: `/dsh:setup`. The key is never printed — every
 message shows a masked fingerprint.
 
 **A bare `dsh` install cannot mount the guard.** The wrapper inserts a row

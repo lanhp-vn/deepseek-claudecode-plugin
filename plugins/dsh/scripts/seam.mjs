@@ -68,7 +68,7 @@ export function substituteMachine (text, machine = {}) {
     if (v === undefined || v === null || v === '' || Array.isArray(v)) {
       throw new MissingMachineKey(
         `overlay.yml references \${machine.${key}} but '${key}' is not set in ~/.deepseek/machine.yml. ` +
-        `Add it, or run /deepseek-setup to scaffold the file. Nothing has been spent.`)
+        `Add it, or run /dsh:setup to scaffold the file. Nothing has been spent.`)
     }
     return String(v)
   })
