@@ -36,7 +36,7 @@ Two things here are called `dsh`, and they are not the same:
 ```
 
 ```sh
-npm i -g @deepseek-ai/dsh                      # the harness
+npm i -g @deepseek-ai/dsh@0.1.1-rc.2            # the harness -- pinned, see CLAUDE.md "Upstream hazards"
 npm i -g pnpm                                  # needed by `dsh plugin ... add`
 dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-ai/dsh-hook-protocol
 ```

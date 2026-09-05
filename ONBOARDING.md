@@ -51,7 +51,7 @@ If the marketplace add fails and you want the clone kept for inspection, set
 ### 2. The harness
 
 ```sh
-npm i -g @deepseek-ai/dsh      # the default backend
+npm i -g @deepseek-ai/dsh@0.1.1-rc.2   # the default backend -- pinned, see CLAUDE.md "Upstream hazards"
 npm i -g pnpm                  # needed by `dsh plugin ... add` below
 ```
 
@@ -205,8 +205,10 @@ needs the Claude Code slash-command interface (which you cannot invoke).
 2. Tell me to run `/plugin marketplace add nouslogic/deepseek-claudecode-plugin`
    and then `/plugin install dsh@nouslogic`. Wait for me to confirm.
 3. Check whether `dsh` is on PATH. If not, tell me to run
-   `npm i -g @deepseek-ai/dsh` and `npm i -g pnpm`, and warn that npm may install
-   to a directory that is not on PATH.
+   `npm i -g @deepseek-ai/dsh@0.1.1-rc.2` and `npm i -g pnpm`, and warn that npm
+   may install to a directory that is not on PATH. The version is pinned, not a
+   typo -- see CLAUDE.md's "Upstream hazards" for why `latest` is unsafe right
+   now, and check whether that note is still current before using it.
 4. THE STEP MOST LIKELY TO BE SKIPPED. Check whether the hook bridge is present:
    read `$DSH_HOME/profiles/headless/package.json` (default `~/.dsh`) and confirm
    BOTH `@deepseek-ai/dsh-hooks-claude-code` and `@deepseek-ai/dsh-hook-protocol`

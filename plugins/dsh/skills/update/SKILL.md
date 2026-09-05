@@ -111,8 +111,14 @@ the CLI back does NOT migrate it back — the next boot fails with a raw
 `TypeError` stack trace instead of a graceful error. See CLAUDE.md's "Upstream
 hazards" for the fix if this happens.
 
+As of 2026-09-04, `npm view @deepseek-ai/dsh version` (`latest`) resolves to
+`0.1.2-rc.1`, a version confirmed to unmount the guard entirely (see "When an
+update breaks something" below) — check that note before running a bare
+install, and if it is still current, install the pinned known-good version by
+name instead of `latest`:
+
 ```bash
-npm i -g @deepseek-ai/dsh
+npm i -g @deepseek-ai/dsh@0.1.1-rc.2   # pinned -- see the 2026-09-04 note below before changing this
 ```
 
 On a machine where npm's global bin is not on PATH, the existing symlink
@@ -176,5 +182,11 @@ tool execution entirely and unmounted the guard — every static/composition
 check still passed, and only the live `/dsh:test` delegation caught it (`guard
 ran` and `block path` FAILed, 0 guard decisions across 6 matched calls). Static
 checks passing right after a CLI bump is not evidence the install is safe to
-delegate against; run the live tier before trusting it. The fix was pinning the
-CLI back to the known-good rc, not chasing the bug in this repo.
+delegate against; run the live tier before trusting it. Bisecting that same
+day (binary search over npm's published versions, each point costing one live
+doctor run) found `0.1.1-rc.2` as the newest version where the guard still
+fires and `0.1.2-alpha.2` as the oldest confirmed-bad one — the whole `0.1.2`
+pre-release line is suspect until DeepSeek ships a fix. The remedy right now is
+`npm i -g @deepseek-ai/dsh@0.1.1-rc.2`, not chasing the bug in this repo, and
+not trusting a plain `npm i -g @deepseek-ai/dsh` (which installs `latest`)
+until this note is updated.

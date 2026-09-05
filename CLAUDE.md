@@ -265,7 +265,14 @@ they were found by upgrading `dsh` in place, not by changing anything here.
   to chase the bug in this repo's own scripts, since every static/composition
   check (dry run, hook command, matcher, guard placement, policy.json, canary)
   still passed. Do not read "static checks pass" as "safe to delegate against"
-  right after a CLI bump — only a live doctor run proves that.
+  right after a CLI bump — only a live doctor run proves that. Bisected the
+  same day by testing endpoints and midpoints, not every release: `0.1.1-rc.2`
+  is the newest confirmed-good version and `0.1.2-alpha.2` the oldest
+  confirmed-bad one — they are adjacent in npm's published version list, so the
+  break is pinned exactly there. `alpha.3`–`alpha.5` were not individually
+  tested and are assumed bad only because they sit between two confirmed-bad
+  points (`alpha.2` and `rc.1`) in the same pre-release line. `0.1.1-rc.2` is
+  the version to install until DeepSeek ships a fixed `0.1.2`.
 - **A version bump can migrate `$DSH_HOME/.credentials.yaml` to a shape an
   older CLI cannot read, and a downgrade does not migrate it back.** Also
   measured 2026-09-04: `0.1.2-rc.1` rewrote the file from the flat mapping
