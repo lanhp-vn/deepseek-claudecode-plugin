@@ -15,6 +15,7 @@
 // on the platform the whole port exists for. Same for the JSON: no jq.
 //
 // Exit codes: 0 ok | 1 usage/no key found | 2 key rejected by the API | 3 no key installed
+//             4 existing $DSH_HOME/.credentials.yaml is not the flat mapping dsh requires
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -104,6 +105,31 @@ export function checkHookBridge (dshHome) {
   }
   const missing = HOOK_BRIDGE.filter((r) => !(r in deps))
   return { ok: missing.length === 0, missing, reason: missing.length ? 'missing from the headless profile' : '' }
+}
+
+/**
+ * Merge one key into a dsh credentials document, which must stay the FLAT
+ * mapping the dsh backend requires (verified against
+ * packages/credentials/credentials-local, 2026-08-15). A newer dsh CLI can
+ * silently migrate the file to a nested `version`/`refs` shape -- measured
+ * 2026-09-04 against dsh 0.1.2-rc.1 -- and an older CLI then fails to boot
+ * from it. Rejecting that shape outright, rather than keeping "every line
+ * that isn't this key" the way a flat merge would, matters because the
+ * nested key's indentation means it would never match that filter: the old
+ * code would have kept the whole broken nested block AND appended a new
+ * top-level line, reporting success while leaving the file just as broken.
+ * @returns {{ok: true, text: string, hasOthers: boolean} | {ok: false, line: string}}
+ */
+export function mergeFlatCredential (existingText, refKey, value) {
+  const lines = existingText === undefined ? [] : existingText.split('\n')
+  const others = []
+  for (const line of lines) {
+    if (!line.trim()) continue
+    const m = /^([A-Za-z_][\w.-]*):[ \t]*(\S.*)$/.exec(line)
+    if (!m) return { ok: false, line: line.trim() }
+    if (m[1] !== refKey) others.push(line)
+  }
+  return { ok: true, text: [...others, `${refKey}: ${value}`].join('\n') + '\n', hasOthers: others.length > 0 }
 }
 
 /** Write a file only the owner can read, without a world-readable window. */
@@ -221,13 +247,16 @@ async function main (argv) {
   // still reaches it.
   if (o.dsh) {
     const cred = join(dshHome, '.credentials.yaml')
-    let others = ''
-    if (existsSync(cred)) {
-      others = readFileSync(cred, 'utf8').split('\n')
-        .filter((l) => l.trim() && !l.startsWith('DEEPSEEK_API_KEY:')).join('\n')
-      if (others) { info(`note: ${cred} holds other entries; rewriting only the DEEPSEEK_API_KEY line`); others += '\n' }
+    const existing = existsSync(cred) ? readFileSync(cred, 'utf8') : undefined
+    const merged = mergeFlatCredential(existing, 'DEEPSEEK_API_KEY', key)
+    if (!merged.ok) {
+      die(`${cred} is not the flat mapping the dsh backend requires (found "${merged.line}").\n` +
+        `       A newer dsh CLI can migrate this file to a nested version/refs shape that an older\n` +
+        `       CLI then fails to boot from -- see CLAUDE.md's platform hazards. Replace it with a\n` +
+        `       flat mapping (e.g. "DEEPSEEK_API_KEY: sk-...") and re-run --dsh.`, 4)
     }
-    writePrivate(cred, `${others}DEEPSEEK_API_KEY: ${key}\n`)
+    if (merged.hasOthers) info(`note: ${cred} holds other entries; rewriting only the DEEPSEEK_API_KEY line`)
+    writePrivate(cred, merged.text)
     try { chmodSync(dshHome, 0o700) } catch { /* no-op on Windows */ }
     ok(`wrote ${cred} (mode 600) for the dsh backend`)
   }

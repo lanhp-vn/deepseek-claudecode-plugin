@@ -106,3 +106,35 @@ test('the fix is a runnable command naming both packages', () => {
   assert.match(HOOK_BRIDGE_FIX, /^dsh plugin --profile headless add /)
   for (const p of HOOK_BRIDGE) assert.ok(HOOK_BRIDGE_FIX.includes(p))
 })
+
+// --- merging into $DSH_HOME/.credentials.yaml ------------------------------
+// dsh requires this file to be a FLAT mapping. A newer dsh CLI can migrate it
+// to a nested version/refs shape (measured 2026-09-04 against 0.1.2-rc.1); an
+// older CLI then fails to boot from it. The merge must refuse that shape
+// outright rather than keep it alongside a freshly appended flat line.
+import { mergeFlatCredential } from './setup-deepseek.mjs'
+
+test('no existing file -> a fresh one-line flat mapping', () => {
+  const r = mergeFlatCredential(undefined, 'DEEPSEEK_API_KEY', 'sk-new')
+  assert.equal(r.ok, true)
+  assert.equal(r.text, 'DEEPSEEK_API_KEY: sk-new\n')
+  assert.equal(r.hasOthers, false)
+})
+
+test('an existing flat file keeps other entries and replaces the target key', () => {
+  const r = mergeFlatCredential('SOME_OTHER_KEY: value\nDEEPSEEK_API_KEY: sk-old\n', 'DEEPSEEK_API_KEY', 'sk-new')
+  assert.equal(r.ok, true)
+  assert.equal(r.text, 'SOME_OTHER_KEY: value\nDEEPSEEK_API_KEY: sk-new\n')
+  assert.equal(r.hasOthers, true)
+})
+
+test('a nested version/refs document is refused, not silently kept alongside a new flat line', () => {
+  const r = mergeFlatCredential('version: "1"\nrefs:\n  DEEPSEEK_API_KEY: sk-old\n', 'DEEPSEEK_API_KEY', 'sk-new')
+  assert.equal(r.ok, false)
+  assert.equal(r.line, 'refs:')
+})
+
+test('an indented line anywhere is refused, even under a plausible-looking top-level key', () => {
+  const r = mergeFlatCredential('DEEPSEEK_API_KEY: sk-old\n  nested: oops\n', 'DEEPSEEK_API_KEY', 'sk-new')
+  assert.equal(r.ok, false)
+})

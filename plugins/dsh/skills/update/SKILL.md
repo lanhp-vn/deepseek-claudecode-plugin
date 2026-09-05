@@ -104,7 +104,12 @@ the two lines to type, in this order:
 Credentials are untouched by a plugin update: they live in `~/.deepseek/` and
 `$DSH_HOME`, not in the plugin cache. Re-running `/dsh:setup` is not needed.
 
-**The harness CLI.**
+**The harness CLI.** Before installing, note (or copy) the current contents of
+`$DSH_HOME/.credentials.yaml` if it exists. Found on 2026-09-04: a version bump
+can silently migrate that file to a shape an older CLI cannot read, and rolling
+the CLI back does NOT migrate it back — the next boot fails with a raw
+`TypeError` stack trace instead of a graceful error. See CLAUDE.md's "Upstream
+hazards" for the fix if this happens.
 
 ```bash
 npm i -g @deepseek-ai/dsh
@@ -165,3 +170,11 @@ moved first: `--no-spend` isolates the composition from the delegation, and
 that exists for precisely this case is `--backend claude-code` (POSIX only), and
 it is why that backend is still in the tree — do not delete it because the
 default works today.
+
+Found on 2026-09-04: a harness CLI bump (`0.1.0-rc.7` to `0.1.2-rc.1`) broke
+tool execution entirely and unmounted the guard — every static/composition
+check still passed, and only the live `/dsh:test` delegation caught it (`guard
+ran` and `block path` FAILed, 0 guard decisions across 6 matched calls). Static
+checks passing right after a CLI bump is not evidence the install is safe to
+delegate against; run the live tier before trusting it. The fix was pinning the
+CLI back to the known-good rc, not chasing the bug in this repo.

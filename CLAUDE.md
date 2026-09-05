@@ -248,6 +248,39 @@ below was a real, shipped bug; none is theoretical.
   its stream decompressor both stop after the first frame, which reads as a
   near-empty log. Use `decompressFrames` from `session-report.mjs`.
 
+## Upstream hazards
+
+The harness CLI itself is a moving preview dependency (`/dsh:update`'s own
+warning: "a new rc can move the headless command line, the patch-row ids the
+wrapper writes, or the session-log format"). These are not platform-specific;
+they were found by upgrading `dsh` in place, not by changing anything here.
+
+- **A patch version can silently break tool execution and unmount the guard.**
+  Measured 2026-09-04: upgrading from `0.1.0-rc.7` to `0.1.2-rc.1` made every
+  tool call in a live delegation fail with an internal `agent.session.events is
+  not iterable`, and — far worse — the `PreToolUse` hook never fired at all (0
+  guard decisions across 6 matched calls), so a briefed refusal would have been
+  delivered as a silent ALLOW. `dsh-doctor`'s `guard ran` and `block path`
+  checks caught it correctly; the fix was to pin back to the known-good rc, not
+  to chase the bug in this repo's own scripts, since every static/composition
+  check (dry run, hook command, matcher, guard placement, policy.json, canary)
+  still passed. Do not read "static checks pass" as "safe to delegate against"
+  right after a CLI bump — only a live doctor run proves that.
+- **A version bump can migrate `$DSH_HOME/.credentials.yaml` to a shape an
+  older CLI cannot read, and a downgrade does not migrate it back.** Also
+  measured 2026-09-04: `0.1.2-rc.1` rewrote the file from the flat mapping
+  `dsh-credentials-local` requires (verified 2026-08-15) into a nested
+  `version`/`refs` document. Rolling the CLI back to `0.1.0-rc.7` afterward
+  made `dsh` fail to *boot* — a raw `TypeError: ... "refs" ... must be a
+  string` stack trace, not a graceful error, because the crash happens inside
+  `dsh`'s own process before the wrapper runs anything. The fix is to hand-edit
+  the file back to a flat mapping (`DEEPSEEK_API_KEY: sk-...`, no wrapper keys).
+  `setup-deepseek.mjs --dsh` now refuses to touch a non-flat file rather than
+  silently producing a hybrid that still fails to parse — see
+  `mergeFlatCredential` and its tests in `setup.test.mjs`. Back up
+  `$DSH_HOME/.credentials.yaml` (or note its exact contents) before bumping the
+  harness CLI, precisely because a downgrade is not guaranteed to be clean.
+
 ## Conventions
 
 - Security-relevant comments carry a **date and a measurement** ("Measured
