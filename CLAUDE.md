@@ -280,8 +280,47 @@ Two consequences shaped the code:
   flash: whether flash rejects, honours or silently swallows an effort value is
   **not** documented, and the old check's whole reason for existing was that pro
   accepted `low` silently (verified live 2026-08-09). Re-asserting an unverified
-  constraint would have been a guess wearing a measurement's clothes. `-e` is
-  therefore unverified against V4.1-Flash — read the session log, not the flag.
+  constraint would have been a guess wearing a measurement's clothes.
+
+  **Corrected 2026-09-10, and the correction found a bug.** Researching
+  `api-docs.deepseek.com` (with `/dsh:research`, on its first real use) settled
+  the open question: `reasoning_effort` IS documented, takes `none|low|high|max`
+  and defaults to `high`. Only the behaviour on an *unsupported* value is
+  undocumented — the docs state ignore-on-invalid for `temperature` and the
+  penalties, which cannot be extended to this parameter. Checking the wrapper
+  against that answer showed `effort` was consumed **only** by
+  `runClaudeCode()` as `CLAUDE_CODE_EFFORT_LEVEL`: on the default dsh backend
+  `-e max` was parsed, stored and dropped, and the run reported success having
+  ignored an explicit flag. That is the silent-acceptance class `-m` refuses by
+  design, one case-label below `-m`, and it survived because the wrapper's
+  default (`high`) matches the API's, so the behaviour was right for everyone
+  who never passed the flag.
+
+  **The obvious fix does not work, and the way it fails is the interesting
+  part.** `dsh-llm-deepseek` does take a `reasoningEffort` config, and a patch
+  row setting it composes cleanly — `dsh --patch … --dump-config` shows it
+  applied to the `llm-deepseek` row, which is about as convincing as a static
+  check gets. It changes nothing: three live runs at `off`, `max` and `max`
+  logged the **identical** request header (`reasoningEffort "high"`, and
+  `model deepseek-v4-flash` where the patch says `deepseek-flash`, so that header
+  is a catalog-resolved snapshot). The agent reads its effort from the
+  `agent-default-model` **settings** section — `z.string()` in
+  `AGENT_DEFAULT_MODEL_SETTINGS_SCHEMA`, absent from the plugin's own `Config`,
+  which builds `{provider, model}` and nothing else — and that is a per-machine
+  settings file, not anything `--patch` reaches.
+
+  The row was removed rather than kept, because a row `--dump-config` reports as
+  live while the request ignores it is worse than no row: it is a fail-open
+  wearing a passing static check, the same shape as a guard that cannot execute.
+  `-e` is now **refused** on the dsh backend, naming `--backend claude-code` as
+  the one that carries it. Wiring it properly means the settings seam, and that
+  is a per-machine write which a per-run flag should not be making.
+
+  Note the two upstreams disagree about the lowest setting: the HTTP API spells
+  it `none`, `dsh-llm-deepseek`'s own Config union spells it `off`. The wrapper
+  validates against the **plugin's** set, because the plugin is what validates
+  the patch row — and it names `off` explicitly when refusing `none`, since
+  `none` is what a reader of DeepSeek's docs would reasonably type.
 
 The harness CLI itself is a moving preview dependency (`/dsh:update`'s own
 warning: "a new rc can move the headless command line, the patch-row ids the

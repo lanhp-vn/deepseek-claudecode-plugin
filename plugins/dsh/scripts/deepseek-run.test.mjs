@@ -310,3 +310,56 @@ test('a frozen path and an allowed command starting with a dash survive', async 
   assert.ok(pol.frozen.includes('-odd-name.py'), 'the frozen path reached the guard')
   assert.equal(pol.allowCmd, '-m pytest', 'the allowed command reached the guard intact')
 })
+
+// -e reached NOTHING on the default backend, and the obvious fix did not work.
+//
+// Measured 2026-09-10 by researching DeepSeek's API docs and then reading this
+// file: `effort` was consumed only by runClaudeCode() as
+// CLAUDE_CODE_EFFORT_LEVEL, so `-e max` on the default dsh backend was parsed,
+// stored and silently dropped -- the run reported success having ignored an
+// explicit flag, which is the silent acceptance `-m` refuses one case-label up.
+// It hid because the wrapper's default (high) matches the API's, so the
+// behaviour was right for anyone who never passed the flag.
+//
+// The first fix attempt wrote an llm-deepseek patch row carrying
+// reasoningEffort. It composed perfectly -- `dsh --patch ... --dump-config`
+// showed it applied -- and changed nothing: three live runs at off, max and max
+// logged the identical request header (reasoningEffort "high"). The agent takes
+// its effort from the agent-default-model SETTINGS section, a per-machine file
+// that --patch cannot reach. That row was removed rather than kept, because a
+// row that dump-config shows as live while the request ignores it is worse than
+// no row at all.
+//
+// So the flag is refused on the backend that cannot honour it. These tests pin
+// the refusal, because "accepted and ignored" is the state we are leaving.
+test('-e is refused on the dsh backend rather than silently dropped', async () => {
+  const d = dryDir()
+  const r = await runWrapper(['-C', ws, '-e', 'max', '--dry-run', '--dry-run-dir', d, 'x'])
+  assert.equal(r.code, 2, `-e on the dsh backend exits 2 (stderr: ${r.stderr.slice(0, 400)})`)
+  assert.match(r.stderr, /would be ignored|no per-run effort control/, 'says the flag would be ignored')
+  assert.match(r.stderr, /claude-code/, 'names the backend that does support it')
+})
+
+test('no run composes an llm-deepseek effort row', async () => {
+  // The removed fix attempt. If this row ever comes back it must come back with
+  // a live run proving the request header actually changes.
+  for (const argv of [['-C', ws], ['-C', ws, '--backend', 'claude-code']]) {
+    const d = dryDir()
+    await runWrapper([...argv, '--dry-run', '--dry-run-dir', d, 'x'])
+    assert.ok(!has(d, 'reasoningEffort', 'patch.yml'), 'writes no reasoningEffort row')
+  }
+})
+
+test('-e is still accepted by the backend that carries it', async () => {
+  const r = await runWrapper(['-C', ws, '--backend', 'claude-code', '-e', 'max', '--dry-run', '--dry-run-dir', dryDir(), 'x'])
+  assert.equal(r.code, 0, `-e max on claude-code exits 0 (stderr: ${r.stderr.slice(0, 400)})`)
+})
+
+test('an unsupported -e value is refused, naming the accepted set', async () => {
+  // `none` is the HTTP API's spelling of the lowest setting; the harness plugin
+  // spells it `off`. It is the most likely wrong value a reader of DeepSeek's
+  // own docs would type, so the refusal names what IS accepted.
+  const r = await runWrapper(['-C', ws, '--backend', 'claude-code', '-e', 'none', '--dry-run', '--dry-run-dir', dryDir(), 'x'])
+  assert.equal(r.code, 2, `-e none exits 2 (stderr: ${r.stderr.slice(0, 400)})`)
+  assert.match(r.stderr, /off\|low\|high\|max/, 'names the accepted values')
+})

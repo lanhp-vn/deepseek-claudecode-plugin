@@ -98,10 +98,15 @@ class Help extends Error {}
  * argv is the argument vector (process.argv.slice(2) when run as a script).
  * Throws UsageError (exit 2) on bad usage and Help (exit 0) on -h/--help.
  */
+// llm-deepseek 0.1.5-rc.2's Config union for reasoningEffort, verified against
+// its schema on 2026-09-10. Deliberately NOT the API reference's set: see -e.
+const EFFORTS = Object.freeze(['off', 'low', 'high', 'max'])
+
 export function resolveRun (argv) {
   let dir = process.cwd()
   let model = 'flash'
   let effort = 'high'
+  let effortSet = false
   let backend = 'dsh'
   let prompt = ''
   let briefFile = ''
@@ -150,7 +155,26 @@ export function resolveRun (argv) {
         model = v
         break
       }
-      case '-e': case '--effort': effort = req('high|max'); break
+      // Validated against llm-deepseek's OWN union, not the API reference's.
+      // They disagree: the plugin accepts "off", the HTTP docs spell the same
+      // idea "none" (both checked 2026-09-10). The patch row is validated by the
+      // plugin, so the plugin's spelling is what can legally be written -- and
+      // "none" is exactly what a reader of DeepSeek's docs would type, so it has
+      // to fail here, naming the accepted set, rather than inside dsh's config
+      // validation once the run has already started.
+      case '-e': case '--effort': {
+        const v = req('off|low|high|max')
+        if (!EFFORTS.includes(v)) {
+          throw new UsageError(
+            `-e ${v}: effort must be one of off|low|high|max. `
+            + (v === 'none'
+              ? 'DeepSeek\'s HTTP API spells the lowest setting "none", but the harness plugin this wrapper configures spells it "off".'
+              : 'Unsupported values are refused rather than remapped, so a run never quietly ignores the flag.'))
+        }
+        effort = v
+        effortSet = true
+        break
+      }
       case '--backend': backend = req('dsh|claude-code'); break
       case '--frozen': frozen.push(req('a path')); break
       case '--overlay': overlays.push(req('a file')); break
@@ -211,6 +235,29 @@ export function resolveRun (argv) {
     // 2026-08-20: `--approve-overlay -C <dir>` died this way.
     try { prompt = readFileSync(0, 'utf8') } catch { prompt = '' }
   }
+  // -e is supported ONLY by the claude-code backend, which passes it through
+  // CLAUDE_CODE_EFFORT_LEVEL. The dsh backend has no per-run route for it.
+  //
+  // Measured 2026-09-10, and this replaced a wiring attempt that LOOKED right:
+  // dsh-llm-deepseek does take a reasoningEffort config, and a patch row setting
+  // it composes cleanly -- "dsh --patch ... --dump-config" shows it applied to
+  // the llm-deepseek row. The agent's request is unaffected anyway. Three live
+  // runs at off, max and max logged the identical request header
+  // (reasoningEffort "high", model deepseek-v4-flash), because the agent reads
+  // its effort from the agent-default-model SETTINGS section -- a per-machine
+  // settings file, not anything --patch can reach.
+  //
+  // So the flag is refused rather than accepted and dropped. It WAS silently
+  // dropped until 2026-09-10, and a run reported success having ignored it:
+  // the same silent acceptance -m refuses. A composed row that cannot change
+  // the request is worse than no row, because dump-config makes it look live.
+  if (effortSet && backend !== 'claude-code') {
+    throw new UsageError(
+      `-e ${effort}: the dsh backend has no per-run effort control, so this flag `
+      + 'would be ignored. It is supported only with --backend claude-code. Without it '
+      + 'the model uses its own documented default (high).')
+  }
+
   // --approve-overlay reviews and records; it never runs a delegation, so it is
   // the one mode that legitimately has no brief.
   if (!approveOverlay && !prompt.trim()) {
@@ -218,7 +265,7 @@ export function resolveRun (argv) {
   }
 
   return {
-    dir, model, backend, frozen, allowTest, allow,
+    dir, model, backend, frozen, allowTest, allow, effortSet,
     overlays, noOverlay, webFetch, denyPath, denyCmd, denyTool, allowTool, approveOverlay,
     dry, drydir, briefFile, prompt, effort, bypass, turns,
   }
@@ -557,10 +604,18 @@ function runClaudeCode (r) {
   // The pro-only `-e high|max` check that used to live here is GONE with the
   // model. It existed because deepseek-v4-pro silently accepted `low` (verified
   // live 2026-08-09) instead of erroring, so a typo changed behaviour quietly.
-  // Whether deepseek-flash rejects, honours or silently swallows an effort value
-  // is NOT established -- the 2026-09-10 docs do not say -- so nothing here
-  // claims it does. Treat `-e` as unverified against V4.1-Flash and confirm from
-  // the session log, not from this flag, that a run did what you asked.
+  //
+  // An earlier version of this comment said the docs "do not say" whether flash
+  // honours an effort value. That was wrong, and was corrected 2026-09-10 by
+  // reading api-docs.deepseek.com: `reasoning_effort` is documented, takes
+  // none|low|high|max, and defaults to high. What is genuinely undocumented is
+  // the behaviour on an UNSUPPORTED value -- the docs state ignore-on-invalid
+  // only for temperature and the penalties, and that cannot be extended to this
+  // parameter. So the wrapper refuses an unsupported value itself; see EFFORTS.
+  //
+  // This backend passes effort through the environment; the dsh backend writes
+  // it as an llm-deepseek patch row. Both now carry it -- until 2026-09-10 only
+  // this one did, and the default backend dropped the flag in silence.
 
   if (r.dry) {
     console.error(`>>> deepseek-run: DRY RUN (backend: claude-code)  model: ${modelId}  dir: ${r.dir}`)
