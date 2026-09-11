@@ -14,11 +14,12 @@ reader who cannot tell which is current.
 | `references/routing.md` | Which delegate gets this task, and why picking wrongly is expensive |
 | `references/briefing.md` | The brief skeleton, the frozen-tests rule, bounce discipline |
 | `references/verification.md` | The gate: diff, untracked files, run the tests yourself, audit the session log |
-| `scripts/delegation-guard.mjs` | `PreToolUse` guard: denies writes to frozen paths, reads of denied paths, and commands outside the whitelist |
+| `scripts/delegation-guard.mjs` | `PreToolUse` guard: denies writes to frozen paths, reads of denied paths, commands outside the whitelist, and — on a `--web-fetch` run only — `web_fetch` to a loopback, private or metadata URL |
 | `scripts/gen-hooks.mjs` | Generates the `hooks.json` that mounts the guard, plus the `policy.json` it reads |
 | `scripts/session-report.mjs` | Reads the delegate's durable session log into an audit of what it actually did |
 | `scripts/differential.test.mjs` | Asserts this Node guard and the bash original decide every payload identically |
 | `scripts/guard-paths.test.mjs`, `scripts/hooks-matcher.test.mjs`, `scripts/session-report.test.mjs` | Regression pins, one per defect that shipped: a path matcher that only spoke `/`, a matcher and a `switch` that disagreed, a report heading that read a path without normalising it |
+| `scripts/guard-webfetch.test.mjs` | The URL rule for research runs, including the IPv4 spellings (decimal, octal, hex, IPv4-mapped IPv6) that a `startsWith('127.')` check walks straight past |
 
 The guard is the reason this directory holds scripts and not only prose. The
 frozen-tests rule used to be enforced by asking the delegate nicely and checking

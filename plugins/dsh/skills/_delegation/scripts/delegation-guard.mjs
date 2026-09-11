@@ -95,6 +95,88 @@ const allowCmdCore = stripLeadingAssignments(allowCmd)
 const denyPath = (policy.denyPath ?? []).map(slash)
 const denyCmd = policy.denyCmd ?? []
 const denyTool = policy.denyTool ?? []
+const webFetch = policy.webFetch === true
+
+/**
+ * Every spelling of an IPv4 literal that resolvers and curl all accept:
+ * dotted-quad, bare decimal (2130706433), octal (0177.0.0.1), hex (0x7f.0.0.1),
+ * and the short forms that pack the remainder into the last part (127.1).
+ * Returns the four octets, or null when this is not an IPv4 literal at all.
+ *
+ * Spelled out rather than regex-matched on `127.` because the alternate
+ * encodings are precisely how a naive check gets walked past.
+ */
+function ipv4Parts (host) {
+  const raw = host.split('.')
+  if (raw.length === 0 || raw.length > 4) return null
+  const nums = []
+  for (const p of raw) {
+    if (p === '') return null
+    let n
+    if (/^0[xX][0-9a-fA-F]+$/.test(p)) n = parseInt(p, 16)
+    else if (/^0[0-7]+$/.test(p)) n = parseInt(p, 8)
+    else if (/^[0-9]+$/.test(p)) n = parseInt(p, 10)
+    else return null
+    if (!Number.isFinite(n) || n < 0) return null
+    nums.push(n)
+  }
+  let value
+  if (nums.length === 1) value = nums[0]
+  else {
+    const last = nums[nums.length - 1]
+    const lead = nums.slice(0, -1)
+    if (lead.some((n) => n > 255)) return null
+    const room = 8 * (4 - nums.length + 1)
+    if (last >= 2 ** room) return null
+    value = lead.reduce((acc, n) => acc * 256 + n, 0) * (2 ** room) + last
+  }
+  if (!Number.isFinite(value) || value < 0 || value > 0xFFFFFFFF) return null
+  return [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255]
+}
+
+/**
+ * Is this host somewhere a PUBLIC-documentation fetch has no business going?
+ * Unknown/unparseable resolves to "private" -- the fail-closed direction, since
+ * the whole point is that only recognisably public hosts are worth reading.
+ */
+function isPrivateHost (host) {
+  if (!host) return true
+  const h = host.replace(/\.$/, '')              // a trailing dot is still an FQDN
+  if (h === 'localhost' || h.endsWith('.localhost')) return true
+  if (h.endsWith('.local') || h.endsWith('.internal') || h.endsWith('.home.arpa')) return true
+  // IPv4-mapped IPv6. WHATWG URL rewrites ::ffff:127.0.0.1 into the HEX form
+  // ::ffff:7f00:1 (measured 2026-09-10), so matching only the dotted spelling
+  // let loopback through as an ordinary IPv6 address -- caught by the test, not
+  // by reading the code. Both spellings are handled here.
+  const mappedHex = h.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i)
+  const mappedDot = h.match(/^::(?:ffff:)?((?:[0-9]{1,3}\.){3}[0-9]{1,3})$/i)
+  let embedded = null
+  if (mappedHex) {
+    const hi = parseInt(mappedHex[1], 16)
+    const lo = parseInt(mappedHex[2], 16)
+    embedded = [(hi >>> 8) & 255, hi & 255, (lo >>> 8) & 255, lo & 255]
+  }
+  const q = embedded ?? ipv4Parts(mappedDot ? mappedDot[1] : h)
+  if (q) {
+    const [a, b] = q
+    if (a === 0 || a === 127) return true                 // this-network, loopback
+    if (a === 10) return true                             // RFC1918
+    if (a === 172 && b >= 16 && b <= 31) return true      // RFC1918
+    if (a === 192 && b === 168) return true               // RFC1918
+    if (a === 169 && b === 254) return true               // link-local AND cloud metadata
+    if (a === 100 && b >= 64 && b <= 127) return true     // CGNAT
+    if (a >= 224) return true                             // multicast, reserved
+    return false
+  }
+  if (h.includes(':')) {                                   // an IPv6 literal
+    const bare = h.replace(/%.*$/, '')                     // drop a zone id
+    if (bare === '::' || bare === '::1') return true
+    if (/^f[cd]/i.test(bare)) return true                  // unique-local fc00::/7
+    if (/^fe[89ab]/i.test(bare)) return true               // link-local fe80::/10
+    return false
+  }
+  return false                                             // an ordinary public name
+}
 
 let payload = ''
 try { payload = readFileSync(0, 'utf8') } catch { die('delegation-guard: cannot read stdin; blocking') }
@@ -204,6 +286,47 @@ function cmdDenied (text) {
 // ---------------------------------------------------------------------------
 if (denyTool.includes(tool)) {
   die(`BLOCKED: the tool '${tool}' is not available for this task. It mutates shared state that is read-only for a delegate.`)
+}
+
+// ---------------------------------------------------------------------------
+// 1b. web_fetch, when the operator opted in with --web-fetch.
+//
+// Ordinary runs never reach this: the wrapper writes `fetch: false` into
+// tool-web, the tool is not registered, and no web_fetch call can exist. A
+// research delegation turns it on, which hands the delegate a fetch backend
+// that does NOT itself refuse private-network targets -- so a link in a search
+// result, or text on a fetched page, can steer it at a cloud metadata endpoint
+// (169.254.169.254), a service on localhost, or the operator's LAN. The model is
+// not the adversary here; a page it reads might be.
+//
+// WHAT THIS DOES NOT COVER, stated plainly because a partial control that is
+// believed is worse than none: it reads the URL as written and does not resolve
+// DNS, so `http://internal.example.com` pointing at 10.0.0.5 passes, and a
+// redirect from a public host to a private one is not seen -- the fetch backend
+// follows it after this hook has already returned. It stops the literal and the
+// careless, which is the realistic shape of the risk, and nothing more. Treat a
+// research delegation as network-adjacent, not network-isolated.
+// ---------------------------------------------------------------------------
+if (webFetch && (tool === 'web_fetch' || tool === 'WebFetch')) {
+  const raw = String(arg('url') ?? '').trim()
+  if (!raw) die('BLOCKED: web_fetch without a url.')
+  let host = ''
+  let scheme = ''
+  try {
+    const u = new URL(raw)
+    scheme = u.protocol.toLowerCase()
+    // Strips the [] of an IPv6 literal and any :port, and lowercases once.
+    host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  } catch {
+    die(`BLOCKED: web_fetch url is not parseable: ${raw}`)
+  }
+  // file:, gopher:, ftp: and friends are not research; http(s) is the whole job.
+  if (scheme !== 'http:' && scheme !== 'https:') {
+    die(`BLOCKED: web_fetch is limited to http and https for this task; got '${scheme}${scheme.endsWith(':') ? '' : ':'}'.`)
+  }
+  if (isPrivateHost(host)) {
+    die(`BLOCKED: '${host}' is a loopback, link-local, private or metadata address. A research delegation reads PUBLIC documentation; it has no business inside this machine or network.`)
+  }
 }
 
 // ---------------------------------------------------------------------------

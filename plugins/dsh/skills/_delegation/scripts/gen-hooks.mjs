@@ -5,7 +5,7 @@
 // Usage:
 //   gen-hooks.mjs --out <dir> [--frozen <path>]... [--allow-cmd "<cmd>"]
 //                 [--deny-path <glob>]... [--deny-cmd <pattern>]...
-//                 [--deny-tool <name>]... [--dialect dsh|codex]
+//                 [--deny-tool <name>]... [--web-fetch] [--dialect dsh|codex]
 //
 // --deny-path, --deny-cmd and --deny-tool are OPTIONAL and additive. Passing
 // none produces the matcher this always had, so existing callers are
@@ -54,6 +54,7 @@ try {
       frozen: { type: 'string', multiple: true, default: [] },
       'allow-cmd': { type: 'string', default: '' },
       'deny-path': { type: 'string', multiple: true, default: [] },
+      'web-fetch': { type: 'boolean', default: false },
       'deny-cmd': { type: 'string', multiple: true, default: [] },
       'deny-tool': { type: 'string', multiple: true, default: [] },
       dialect: { type: 'string', default: 'dsh' },
@@ -119,6 +120,14 @@ if (values['deny-path'].length || values['deny-cmd'].length) parts.push('termina
 // dialects accept.
 parts.push(...values['deny-tool'])
 
+// web_fetch is OFF for ordinary runs -- the wrapper writes `fetch: false` into
+// tool-web, so the tool is never registered and there is nothing to hook. When a
+// caller opts in (/dsh:research), the delegate gains a fetch backend that will
+// happily resolve a loopback, link-local or RFC1918 target, so the tool has to
+// be in the matcher or the URL rule below it is dead code -- the exact drift
+// that left pwsh unhooked on Windows.
+if (values['web-fetch']) parts.push('web_fetch')
+
 // WHY THE WINDOWS FORM CARRIES AN EXPLICIT `exit`. dsh runs command hooks
 // through ctx.shell, which is PowerShell on Windows, and PowerShell does NOT
 // adopt a native command's exit code as its own. `node guard.mjs` exiting 2 left
@@ -167,6 +176,7 @@ writeFileSync(join(out, 'policy.json'), JSON.stringify({
   denyPath: values['deny-path'],
   denyCmd: values['deny-cmd'],
   denyTool: values['deny-tool'],
+  webFetch: values['web-fetch'],
 }, null, 2) + '\n')
 
 console.log(join(out, 'hooks.json'))

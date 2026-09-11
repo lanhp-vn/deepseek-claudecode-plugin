@@ -10,7 +10,8 @@ plan and verify while DeepSeek V4 writes code inside a sandbox, under a
 `PreToolUse` guard that refuses to start unless it can prove it is working.
 
 Two different things are called `dsh`. `/dsh:setup`, `/dsh:run`, `/dsh:test`,
-`/dsh:update` and `/dsh:tools-check` (with the colon) are this plugin's
+`/dsh:update`, `/dsh:tools-check` and `/dsh:research` (with the colon) are
+this plugin's
 commands and skills. Bare `dsh` is the harness CLI, installed separately via
 npm.
 
@@ -329,6 +330,29 @@ they were found by upgrading `dsh` in place, not by changing anything here.
   CLI *backwards* treated a symptom and cost five weeks on a stale harness; the
   fix was to move both halves forward together. Before concluding "the whole
   release line is bad", find out which package the failing frame belongs to.
+
+- **The wrapper's `fetch: false` override stopped being belt-and-braces.** Its
+  comment said tool-web "already ships fetch:false in the headless composition",
+  so the row was insurance. Measured 2026-09-10 on `0.1.5-rc.2`: the composition
+  now ships `fetch: true` and mounts `@deepseek-ai/dsh-web-fetch-http`, so that
+  row is the only thing keeping a delegate off arbitrary URLs. The comment
+  predicted this exact case ("so a future default change does not silently grant
+  the delegate a fetch backend") and the defence held — but a reader would have
+  deleted the row as redundant on the comment's own say-so. A defensive override
+  whose justification is "the default already does this" needs re-measuring, not
+  just re-reading.
+
+  `/dsh:research` is the one delegation that turns fetch on, via `--web-fetch`.
+  A flag, never a repo file: capability that arrives with a `git clone` is
+  capability nobody consented to. With it on, `web_fetch` joins the hook matcher
+  and the guard refuses loopback, link-local, RFC1918, CGNAT, unique-local,
+  metadata and non-http(s) targets (`isPrivateHost`). Proven live 2026-09-10:
+  `169.254.169.254` blocked (exit 2), `example.com` allowed, in one real
+  delegation. **It reads the URL as written and does not resolve DNS**, so a
+  hostname pointing at a private address passes and a public→private redirect is
+  followed inside the backend after the hook returns. It stops the literal and
+  the careless; it is not an SSRF boundary, and `guard-webfetch.test.mjs` says so
+  in its header rather than leaving the next reader to assume otherwise.
 
 - **The session log filename carries a format version, and it moved.**
   `0.1.1-rc.2` wrote `session.jsonl.zstd`; `0.1.5-rc.2` writes

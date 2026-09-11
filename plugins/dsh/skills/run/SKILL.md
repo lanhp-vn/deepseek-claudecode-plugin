@@ -12,8 +12,10 @@ description: >-
   use, whether DeepSeek supports images or vision, or how to point a coding
   agent at DeepSeek. Prefer this over codex-invoke when the task is
   well-specified, mechanical or high-volume and a test defines "done". Do NOT
-  trigger for exploration or research, for subtle work where being wrong is
-  expensive, or when the user has not asked to involve DeepSeek.
+  trigger for code exploration, for subtle work where being wrong is expensive,
+  or when the user has not asked to involve DeepSeek. For looking something up
+  on the web -- docs, changelogs, versions, GitHub -- use /dsh:research instead:
+  it is the same delegate pointed at reading rather than writing.
 ---
 
 # `/dsh:run` — you specify, DeepSeek implements

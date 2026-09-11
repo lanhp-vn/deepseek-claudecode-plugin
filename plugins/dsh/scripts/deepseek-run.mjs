@@ -11,7 +11,7 @@
 // Usage:
 //   deepseek-run.mjs [--backend dsh|claude-code] [-C <dir>] [-m flash]
 //                    [--frozen <path>]... [--allow-test "<cmd>"]
-//                    [--overlay <file>]... [--no-overlay] "<brief>"
+//                    [--overlay <file>]... [--no-overlay] [--web-fetch] "<brief>"
 //   deepseek-run.mjs [-C <dir>] -f <brief-file>
 //   cat brief.md | deepseek-run.mjs [-C <dir>]
 //
@@ -74,7 +74,7 @@ const USAGE = `deepseek-run.mjs: run one delegated implementation task on DeepSe
 Usage:
   deepseek-run.mjs [--backend dsh|claude-code] [-C <dir>] [-m flash]
                    [--frozen <path>]... [--allow-test "<cmd>"]
-                   [--overlay <file>]... [--no-overlay] "<brief>"
+                   [--overlay <file>]... [--no-overlay] [--web-fetch] "<brief>"
   deepseek-run.mjs [-C <dir>] -f <brief-file>
   cat brief.md | deepseek-run.mjs [-C <dir>]
   deepseek-run.mjs --approve-overlay -C <dir>    # review and approve .deepseek/overlay.yml
@@ -111,6 +111,7 @@ export function resolveRun (argv) {
   let dry = false
   let bypass = false
   let noOverlay = false
+  let webFetch = false
   const frozen = []
   const allow = []
   const overlays = []
@@ -154,6 +155,10 @@ export function resolveRun (argv) {
       case '--frozen': frozen.push(req('a path')); break
       case '--overlay': overlays.push(req('a file')); break
       case '--no-overlay': noOverlay = true; break
+      // Opt-in network READ for the delegate. Off by default and deliberately a
+      // flag: it lives in a hand and in the session log, so no repo file can
+      // turn it on. See the tool-web patch row for what it grants.
+      case '--web-fetch': webFetch = true; break
       case '--deny-path': denyPath.push(req('a glob')); break
       case '--deny-cmd': denyCmd.push(req('a pattern')); break
       case '--deny-tool': denyTool.push(req('a tool name')); break
@@ -214,7 +219,7 @@ export function resolveRun (argv) {
 
   return {
     dir, model, backend, frozen, allowTest, allow,
-    overlays, noOverlay, denyPath, denyCmd, denyTool, allowTool, approveOverlay,
+    overlays, noOverlay, webFetch, denyPath, denyCmd, denyTool, allowTool, approveOverlay,
     dry, drydir, briefFile, prompt, effort, bypass, turns,
   }
 }
@@ -416,6 +421,7 @@ async function runDsh (r) {
   for (const g of pol.denyPath) genArgs.push(`--deny-path=${g}`)
   for (const c of pol.denyCmd) genArgs.push(`--deny-cmd=${c}`)
   for (const t of pol.denyTool) genArgs.push(`--deny-tool=${t}`)
+  if (r.webFetch) genArgs.push('--web-fetch')
   const genHooks = join(here, '..', 'skills', '_delegation', 'scripts', 'gen-hooks.mjs')
   const gen = spawnSync(process.execPath, [genHooks, ...genArgs], {
     stdio: ['ignore', 'ignore', 'inherit'],
@@ -449,12 +455,19 @@ async function runDsh (r) {
     mode: workspace-write
     workspaceRoot: ${yp(r.dir)}
 
-# tool-web already ships fetch:false in the headless composition; this keeps it
-# off explicitly so a future default change does not silently grant the delegate
-# a fetch backend that does not block private-network targets.
+# THE DEFAULT CHANGE THIS ROW WAS WRITTEN AGAINST HAS NOW HAPPENED. This comment
+# used to say tool-web "already ships fetch:false in the headless composition",
+# making the row belt-and-braces. Measured 2026-09-10 against 0.1.5-rc.2: the
+# composition now ships fetch:true and mounts a @deepseek-ai/dsh-web-fetch-http
+# backend, so this row is the ONLY thing keeping the delegate off arbitrary URLs.
+# Do not delete it as redundant; it is not.
+#
+# web_search stays on either way -- it returns snippets and reaches no host the
+# delegate chose. web_fetch is what --web-fetch grants, and when granted the
+# guard polices the URL (delegation-guard.mjs, isPrivateHost).
 - id: tool-web
   config:
-    fetch: false
+    fetch: ${r.webFetch}
     searchTimeoutMs: 60000
 
 - insert:

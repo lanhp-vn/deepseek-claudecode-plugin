@@ -7,7 +7,7 @@
       "name": "dsh",
       "source": "./plugins/dsh",
       "description": "Plan and verify in Claude while DeepSeek V4 writes the implementation, under a guarded, per-project sandbox.",
-      "version": "2.3.0",
+      "version": "2.4.0",
       "author": { "name": "Nouslogic" },
       "license": "MIT",
       "keywords": ["deepseek", "delegation", "codegen"]

@@ -112,8 +112,13 @@ from the cache path, or compare the two trees by content.
 
 - **The `--backend claude-code` fallback.** Never covered here, and never run on
   Windows at all.
-- **The sandbox's write confinement.** Reads and network are not confined and
-  this does not pretend to test them.
+- **The sandbox's write confinement.** Reads and network are not confined at the
+  process level and this does not pretend to test them.
+- **The `/dsh:research` network path.** The doctor runs no `--web-fetch`
+  delegation, so its `web_fetch` URL rule is covered by `guard-webfetch.test.mjs`
+  and by two live runs on 2026-09-10 (`169.254.169.254` blocked, `example.com`
+  allowed) — not by this command. If you change `isPrivateHost`, those tests are
+  what stands behind it.
 - **Anything past the direct route.** A whitelisted command that runs project
   code can still edit a frozen file through that code. The doctor proves the
   guard blocks direct writes; `git diff -- <frozen>` after a real delegation is

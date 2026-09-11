@@ -23,7 +23,7 @@ Two things here are called `dsh`, and they are not the same:
 
 | | |
 |---|---|
-| `/dsh:…` **with the colon** | this plugin's five commands |
+| `/dsh:…` **with the colon** | this plugin's six commands |
 | bare `dsh` | the DeepSeek Harness CLI it drives, installed separately below |
 
 ---
@@ -80,7 +80,7 @@ Full walkthrough, and a prompt that installs and configures all of this for you:
 
 ---
 
-## The five commands
+## The six commands
 
 | Command | What it does |
 |---|---|
@@ -89,6 +89,7 @@ Full walkthrough, and a prompt that installs and configures all of this for you:
 | `/dsh:test` | Proves the guard really blocks. One real delegation, **about a cent** |
 | `/dsh:tools-check` | Reads *this* repo and fits its `.deepseek/` seam to what it actually is |
 | `/dsh:update` | Checks the four upstreams that move independently, then re-tests |
+| `/dsh:research` | Sends a delegate to read the public web and report back with sources |
 
 **When to run `/dsh:test`:** after install, after every update, after touching the
 guard, and on any machine where a delegation has not run before.
@@ -204,6 +205,12 @@ The floor denies, always:
 | **paths** | `.env*`, `*.key`, `*.pem`, `credentials/**`, `**/.ssh/**`, `.git/config` |
 | **commands** | `git push`, `git push --force`, `git reset --hard`, `git clean -fdx` |
 
+Network tools are off by the same logic, one layer up: the wrapper writes
+`fetch: false` into `tool-web` on every run, so a delegate has no page-fetching
+tool to call. `/dsh:research` is the single opt-in, and it is a **flag**
+(`--web-fetch`) rather than a repo setting, for the same reason `allowTool` is
+not read from a committed file.
+
 ---
 
 ## What the guard does *not* do
@@ -213,7 +220,14 @@ It blocks the direct route. **It is not a boundary.**
 - A delegate allowed to run a command that executes project code — `pytest`
   reading `conftest.py`, `npm test`, `make` — can have *that code* edit a frozen
   file. One did exactly this, then deleted the helper.
-- The sandbox confines **writes only**. Reads and network are not confined.
+- The sandbox confines **writes only**. Reads and network are not confined *at
+  the process level* — a whitelisted command that can reach the internet can
+  still reach it. What IS controlled is the delegate's network **tools**:
+  `web_fetch` is not registered at all unless a run passes `--web-fetch`
+  (`/dsh:research` does; nothing else should), and when it is, the guard refuses
+  loopback, link-local, private, CGNAT and cloud-metadata targets. That rule
+  reads the URL as written and does not resolve DNS, so it stops the literal and
+  the careless — it is not an SSRF boundary.
 - `git diff -- <frozen>` is what actually holds. The guard buys cost and an
   audit trail.
 
