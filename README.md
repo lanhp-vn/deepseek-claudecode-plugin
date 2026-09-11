@@ -36,9 +36,10 @@ Two things here are called `dsh`, and they are not the same:
 ```
 
 ```sh
-npm i -g @deepseek-ai/dsh@0.1.1-rc.2            # the harness -- pinned, see CLAUDE.md "Upstream hazards"
+npm i -g @deepseek-ai/dsh@0.1.5-rc.2            # the harness -- pinned; CLI and bridge MUST match
 npm i -g pnpm                                  # needed by `dsh plugin ... add`
-dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-ai/dsh-hook-protocol
+dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code@0.1.5-rc.2 \
+  @deepseek-ai/dsh-hook-protocol@0.1.5-rc.2 @deepseek-ai/dsh-session-projection@0.1.5-rc.2
 ```
 
 ```
@@ -48,10 +49,17 @@ dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-a
 
 > [!IMPORTANT]
 > **That third `npm`/`dsh` line is not optional.** A bare `dsh` install ships
-> neither package. The plugin mounts its guard by naming the first one, so
+> none of those packages. The plugin mounts its guard by naming the first one, so
 > without them dsh exits at boot with `Cannot find package` and *every*
 > delegation fails. `dsh-hook-protocol` is a peerDependency that pnpm will not
 > pull in on its own.
+>
+> **Keep the versions pinned and identical to the CLI.** The bridge is
+> version-locked to the harness, and these packages' npm `latest` tags do *not*
+> agree with the CLI's — so an unpinned install silently pairs a current CLI with
+> a bridge a whole release line behind. That combination fails every tool call
+> *and* leaves the guard mounted but never firing: a delegation that looks
+> guarded and is not. `/dsh:test` checks the pairing (`profile lockstep`).
 
 | | |
 |---|---|

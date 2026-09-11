@@ -25,7 +25,7 @@ no coding CLI" — that was true until 2026-08 and is now wrong.
 ## Install
 
 ```sh
-npm i -g @deepseek-ai/dsh      # standalone; does NOT need a repo checkout
+npm i -g @deepseek-ai/dsh@0.1.5-rc.2   # standalone; does NOT need a repo checkout. PIN IT -- see below
 npm i -g pnpm                  # only needed for `dsh plugin ... add`
 ```
 

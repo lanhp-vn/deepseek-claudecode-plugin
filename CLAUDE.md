@@ -287,46 +287,63 @@ warning: "a new rc can move the headless command line, the patch-row ids the
 wrapper writes, or the session-log format"). These are not platform-specific;
 they were found by upgrading `dsh` in place, not by changing anything here.
 
-- **A patch version can silently break tool execution and unmount the guard.**
-  Measured 2026-09-04: upgrading from `0.1.0-rc.7` to `0.1.2-rc.1` made every
-  tool call in a live delegation fail with an internal `agent.session.events is
-  not iterable`, and — far worse — the `PreToolUse` hook never fired at all (0
-  guard decisions across 6 matched calls), so a briefed refusal would have been
-  delivered as a silent ALLOW. `dsh-doctor`'s `guard ran` and `block path`
-  checks caught it correctly; the fix was to pin back to the known-good rc, not
-  to chase the bug in this repo's own scripts, since every static/composition
-  check (dry run, hook command, matcher, guard placement, policy.json, canary)
-  still passed. Do not read "static checks pass" as "safe to delegate against"
-  right after a CLI bump — only a live doctor run proves that. Bisected the
-  same day by testing endpoints and midpoints, not every release: `0.1.1-rc.2`
-  is the newest confirmed-good version and `0.1.2-alpha.2` the oldest
-  confirmed-bad one — they are adjacent in npm's published version list, so the
-  break is pinned exactly there. `alpha.3`–`alpha.5` were not individually
-  tested and are assumed bad only because they sit between two confirmed-bad
-  points (`alpha.2` and `rc.1`) in the same pre-release line. `0.1.1-rc.2` is
-  the version to install until DeepSeek ships a fixed `0.1.2`.
+- **Two npm packages must move together, and only one of them has a `latest`
+  tag you can trust.** The hook bridge (`@deepseek-ai/dsh-hooks-claude-code`,
+  with its `dsh-hook-protocol` peer) reaches into harness internals, so it is
+  version-locked to the CLI — its `peerDependencies` name the CLI's own version
+  family. Upgrade one without the other and every tool call dies.
 
-  **Re-tested 2026-09-10 against `0.1.5-rc.1` (then npm `latest`): still
-  broken, identically.** Every tool call in the live delegation failed with the
-  same `agent.session.events is not iterable`, the delegate produced nothing,
-  and no session log was written at all. So the regression has survived
-  `0.1.2` → `0.1.5` and is not a one-release accident; assume the whole line
-  after `0.1.1-rc.2` is bad and re-test by measurement, not by version number,
-  before moving the pin. The bump did **not** re-migrate
-  `$DSH_HOME/.credentials.yaml` (already nested here, and byte-identical
-  afterwards), and the rollback to `0.1.1-rc.2` was clean — all checks passed
-  again immediately.
+  Measured 2026-09-04, re-measured 2026-09-10, and **misdiagnosed both times**:
+  bumping the CLI from `0.1.0-rc.7` to `0.1.2-rc.1` (later `0.1.5-rc.1`) made
+  every tool call in a live delegation fail with an internal
+  `agent.session.events is not iterable`, and — far worse — the `PreToolUse`
+  hook never fired at all (0 guard decisions across 6 matched calls), so a
+  briefed refusal would have been delivered as a silent ALLOW. That was read as
+  a CLI regression and answered by pinning back to `0.1.1-rc.2`.
 
-  One reporting hazard found doing this, worth knowing before reading a failed
-  doctor run: because the broken CLI wrote **no** session log, `session-report`
-  fell back to the newest log on disk, which was the *previous*, healthy run.
-  The report therefore printed a "Guard decisions" block showing 4 decisions
-  and 2 blocks — belonging to a different session — under a run where the guard
-  had done nothing. The `session log` check (`no session log newer than this
-  run`) is the only thing that caught it, and `delegate worked` warned as well.
-  Read those two before believing a decisions table; a stale log is
-  indistinguishable from a healthy one by content alone. The giveaway is an
-  unchanged session id and identical token counts across two runs.
+  It was not a CLI regression. Root-caused 2026-09-10: the failing frame is in
+  the **bridge**, which had sat at `0.0.1-rc.5` throughout. Its `lastTurn()` did
+  `[...agent.session.events]`; the newer core replaced that field with session
+  projections (`ctx.sessionProjections.stateOf(session, 'turnBoundary')`, plus a
+  new `@deepseek-ai/dsh-session-projection` peer), and spreading a non-iterable
+  throws that exact message. Because `lastTurn` runs while building the
+  PreToolUse payload, one crash caused both symptoms at once: the hook never
+  fired AND the tool call failed. Moving the bridge in lockstep fixes it —
+  `0.1.5-rc.2` passes every doctor check, block path included.
+
+  **Why it stayed hidden: the plugin packages publish a `0.1.x` line, but
+  upstream never moved their `latest` dist-tag off `0.0.1-rc.*`** (checked
+  2026-09-10, all nine). So the unversioned
+  `dsh plugin --profile headless add <pkg>` that README, ONBOARDING and
+  `/dsh:update` all printed resolves to the ANCIENT line and can never produce a
+  matched set against a bumped CLI. The skew was structurally guaranteed, and
+  nothing warned — pnpm's "unmet peer" line is routine noise in this tree, which
+  is exactly why `/dsh:update` tells you not to read it as a reason to upgrade.
+  Every install command in this repo now pins an explicit version, and
+  `dsh-doctor` fails a `profile lockstep` check when the bridge's `major.minor`
+  differs from the CLI's.
+
+  The general lesson outlived its wrong first answer: static checks passing
+  right after a bump is not evidence the install is safe to delegate against —
+  only a live doctor run proves that. What changed is the remedy. Pinning the
+  CLI *backwards* treated a symptom and cost five weeks on a stale harness; the
+  fix was to move both halves forward together. Before concluding "the whole
+  release line is bad", find out which package the failing frame belongs to.
+
+- **The session log filename carries a format version, and it moved.**
+  `0.1.1-rc.2` wrote `session.jsonl.zstd`; `0.1.5-rc.2` writes
+  `session.v3.jsonl.zstd` (measured 2026-09-10). `findNewestLog` compared the
+  basename exactly, so the live doctor found no log for its own run and fell
+  back to the newest match on disk — a healthy run from an **unrelated
+  project** — then printed that session's tool calls and guard decisions under a
+  run they did not belong to, reporting "no guard was mounted on this run" while
+  the guard had in fact blocked twice. Only the `session log` check caught it: a
+  stale log is indistinguishable from a fresh one by content alone, and the
+  giveaway is a session id or cwd slug that does not match the run. The match is
+  now version-agnostic (`/^session(\..+)?\.jsonl\.zstd$/`) and pinned by tests
+  in `session-report.test.mjs`. The frames themselves still decode unchanged
+  with `decompressFrames`.
+
 - **A version bump can migrate `$DSH_HOME/.credentials.yaml` to a shape an
   older CLI cannot read, and a downgrade does not migrate it back.** Also
   measured 2026-09-04: `0.1.2-rc.1` rewrote the file from the flat mapping

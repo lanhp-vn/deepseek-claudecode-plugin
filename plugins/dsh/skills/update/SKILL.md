@@ -111,17 +111,14 @@ the CLI back does NOT migrate it back — the next boot fails with a raw
 `TypeError` stack trace instead of a graceful error. See CLAUDE.md's "Upstream
 hazards" for the fix if this happens.
 
-As of **2026-09-10**, `npm view @deepseek-ai/dsh version` (`latest`) resolves to
-`0.1.5-rc.1`, which was tested that day and is **still broken in exactly the
-same way** as `0.1.2-rc.1`: every tool call fails with `agent.session.events is
-not iterable`, the delegate produces nothing, and no session log is written
-(see "When an update breaks something" below). The regression has now survived
-`0.1.2` → `0.1.5`, so treat every version above the pin as bad until a live
-doctor run says otherwise. Install the pinned known-good version by name, never
-`latest`:
+**The CLI and the hook bridge are one unit — never bump one alone.** The bridge
+reaches into harness internals and its `peerDependencies` name the CLI's own
+version family, so a mismatched pair makes every tool call fail AND silently
+unmounts the guard (see "When an update breaks something"). Always install both
+halves at the same explicit version, never `latest`:
 
 ```bash
-npm i -g @deepseek-ai/dsh@0.1.1-rc.2   # pinned -- see the 2026-09-10 note below before changing this
+npm i -g @deepseek-ai/dsh@0.1.5-rc.2   # pinned -- bump this and the bridge together
 ```
 
 On a machine where npm's global bin is not on PATH, the existing symlink
@@ -131,12 +128,23 @@ a fresh install can replace a shim.
 **The profile packages.**
 
 ```bash
-dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-ai/dsh-hook-protocol
+dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code@0.1.5-rc.2 \
+  @deepseek-ai/dsh-hook-protocol@0.1.5-rc.2 @deepseek-ai/dsh-session-projection@0.1.5-rc.2
 ```
 
 Needs `pnpm` (`npm i -g pnpm`). Name only the packages that are actually
 mounted; each one is inert until an overlay row mounts it, but each is still a
 thing that can break.
+
+**Pin every one of them, to the same version as the CLI.** Measured 2026-09-10:
+these packages publish a `0.1.x` line but upstream never moved their npm
+`latest` tag off `0.0.1-rc.*`, so the unversioned form of this command resolves
+to the ancient line and CANNOT produce a matched set against a current CLI. That
+is not a hypothetical — it is what the "broken since 0.1.2" pin below actually
+was. If the profile holds packages beyond the bridge (lsp, terminal, mcp-client,
+tool-*), bump those to the same version in the same command; `dsh-doctor`'s
+`profile lockstep` check fails when the bridge's `major.minor` differs from the
+CLI's.
 
 **A maintainer checkout.** `git pull`, then — before anything else — the suite,
 because these tests are the only thing standing between a merge and a silently
@@ -180,25 +188,39 @@ that exists for precisely this case is `--backend claude-code` (POSIX only), and
 it is why that backend is still in the tree — do not delete it because the
 default works today.
 
-Found on 2026-09-04: a harness CLI bump (`0.1.0-rc.7` to `0.1.2-rc.1`) broke
-tool execution entirely and unmounted the guard — every static/composition
-check still passed, and only the live `/dsh:test` delegation caught it (`guard
-ran` and `block path` FAILed, 0 guard decisions across 6 matched calls). Static
-checks passing right after a CLI bump is not evidence the install is safe to
-delegate against; run the live tier before trusting it. Bisecting that same
-day (binary search over npm's published versions, each point costing one live
-doctor run) found `0.1.1-rc.2` as the newest version where the guard still
-fires and `0.1.2-alpha.2` as the oldest confirmed-bad one — the whole `0.1.2`
-pre-release line is suspect until DeepSeek ships a fix. The remedy right now is
-`npm i -g @deepseek-ai/dsh@0.1.1-rc.2`, not chasing the bug in this repo, and
-not trusting a plain `npm i -g @deepseek-ai/dsh` (which installs `latest`)
-until this note is updated.
+Found on 2026-09-04, and **misdiagnosed for five weeks**: a harness CLI bump
+(`0.1.0-rc.7` to `0.1.2-rc.1`) broke tool execution entirely and unmounted the
+guard — every static/composition check still passed, and only the live
+`/dsh:test` delegation caught it (`guard ran` and `block path` FAILed, 0 guard
+decisions across 6 matched calls). Static checks passing right after a CLI bump
+is not evidence the install is safe to delegate against; run the live tier
+before trusting it. That part of the lesson stands.
 
-Re-tested 2026-09-10 on `0.1.5-rc.1`: same failure, so it is not confined to
-`0.1.2`. The rollback was clean (credentials file untouched, all checks green
-again straight after), so testing a new version costs one live doctor run and
-nothing else — but **read the `session log` check before the decisions table**.
-The broken CLI writes no log, so the report falls back to the newest log on
-disk and can print the *previous* healthy run's guard decisions under a run
-where the guard never fired. An unchanged session id and identical token counts
-across two runs is the tell.
+The diagnosis did not. It was read as a CLI regression and answered by pinning
+back to `0.1.1-rc.2`; a re-test on 2026-09-10 against `0.1.5-rc.1` failed
+identically and was taken as confirmation that the whole release line was bad.
+Root-caused later that day: the failing frame was never in the CLI. The **hook
+bridge** had sat at `0.0.1-rc.5` the entire time, because its npm `latest` tag
+still points at the `0.0.1` line while the package also publishes `0.1.x`. Its
+`lastTurn()` spread `agent.session.events`, a field the newer core replaced with
+session projections — hence `agent.session.events is not iterable` — and since
+that runs while building the PreToolUse payload, one crash both killed the tool
+call and stopped the hook from ever firing. Upgrading CLI and bridge together to
+`0.1.5-rc.2` passes every check including the block path.
+
+**So when a bump breaks a delegation, find out which package the failing frame
+belongs to before concluding a version is bad.** `npm ls -g --depth=0`, the
+profile's `package.json`, and the stack in the session log will tell you. A
+bisect over the wrong package's versions will confirm any story you bring to it.
+
+Two reporting hazards to know before reading a failed doctor run:
+
+- **Read the `session log` check before the decisions table.** If the run wrote
+  no log the report falls back to the newest log on disk, which can belong to a
+  different project entirely, and prints its tool calls and guard decisions
+  under your run. A session id or cwd slug that does not match the run is the
+  tell; identical token counts across two runs is another.
+- **The log filename carries a format version** — `session.jsonl.zstd` on
+  `0.1.1-rc.2`, `session.v3.jsonl.zstd` on `0.1.5-rc.2`. A `session log` failure
+  immediately after a harness bump usually means the name moved again, which is
+  `session-report.mjs` to fix, not a broken run.

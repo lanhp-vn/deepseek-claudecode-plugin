@@ -25,7 +25,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { homedir, platform, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BASE_URL, HOOK_BRIDGE_FIX, checkHookBridge, findKey, mask } from './setup-deepseek.mjs'
+import { BASE_URL, HOOK_BRIDGE_FIX, checkHookBridge, checkProfileLockstep, findKey, mask } from './setup-deepseek.mjs'
 import { resolveDsh } from './deepseek-run.mjs'
 import { PROBE_PATH, runCanary } from './canary.mjs'
 import { findNewestLog, readEvents } from '../skills/_delegation/scripts/session-report.mjs'
@@ -216,12 +216,22 @@ async function main (argv) {
 
   const dsh = resolveDsh()
   const ver = spawnSync(dsh.cmd, [...dsh.pre, '--version'], { encoding: 'utf8' })
-  if (ver.error) fail('dsh CLI', 'not runnable. Install it: npm i -g @deepseek-ai/dsh')
-  else pass('dsh CLI', (ver.stdout || ver.stderr || '').trim().split('\n')[0])
+  const cliVersion = (ver.stdout || ver.stderr || '').trim().split('\n')[0]
+  if (ver.error) fail('dsh CLI', 'not runnable. Install it: npm i -g @deepseek-ai/dsh@0.1.5-rc.2')
+  else pass('dsh CLI', cliVersion)
 
   const bridge = checkHookBridge(dshHome)
   if (bridge.ok) pass('hook bridge', 'present in the headless profile; the guard can mount')
   else fail('hook bridge', `${bridge.missing.join(', ')} (${bridge.reason}). Every delegation fails at boot. Fix: ${HOOK_BRIDGE_FIX}`)
+
+  // A FAIL and not a WARN. Measured 2026-09-10: a bridge one release line behind
+  // the CLI made every tool call fail AND left the PreToolUse hook never firing,
+  // while every other static check here still passed. That is the exact shape
+  // this doctor exists to refuse -- a run that looks guarded and is not.
+  const lock = checkProfileLockstep(dshHome, cliVersion)
+  if (lock.ok) {
+    if (lock.bridge) pass('profile lockstep', `hook bridge ${lock.bridge} matches the CLI's release line`)
+  } else fail('profile lockstep', lock.reason)
 
   head('Credentials')
   const { key, src } = findKey({}, process.env, home)

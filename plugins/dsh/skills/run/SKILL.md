@@ -60,7 +60,8 @@ naming `@deepseek-ai/dsh-hooks-claude-code`, and dsh exits 1 at boot with
 per machine:
 
 ```bash
-dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-ai/dsh-hook-protocol
+dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code@0.1.5-rc.2 \
+  @deepseek-ai/dsh-hook-protocol@0.1.5-rc.2 @deepseek-ai/dsh-session-projection@0.1.5-rc.2
 ```
 
 `--verify-only` checks this and names what is missing.

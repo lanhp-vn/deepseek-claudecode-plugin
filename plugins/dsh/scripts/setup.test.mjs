@@ -138,3 +138,45 @@ test('an indented line anywhere is refused, even under a plausible-looking top-l
   const r = mergeFlatCredential('DEEPSEEK_API_KEY: sk-old\n  nested: oops\n', 'DEEPSEEK_API_KEY', 'sk-new')
   assert.equal(r.ok, false)
 })
+
+import { checkProfileLockstep } from './setup-deepseek.mjs'
+
+// The hook bridge is version-locked to the CLI, and nothing upstream enforces it.
+//
+// Measured 2026-09-10: the bridge sat at 0.0.1-rc.5 while the CLI was bumped to
+// 0.1.2 and then 0.1.5. Its lastTurn() spread `agent.session.events`, a field
+// the newer core had replaced with session projections, so every tool call died
+// with `agent.session.events is not iterable` AND -- because that runs while
+// building the PreToolUse payload -- the guard never fired at all. A briefed
+// refusal would have been delivered as a silent ALLOW.
+//
+// It stayed hidden for five weeks because these packages publish a 0.1.x line
+// while their npm `latest` tag still points at 0.0.1-rc.*, so the unversioned
+// `dsh plugin ... add` in every install doc resolved to the ancient line. The
+// skew was structurally guaranteed and pnpm's "unmet peer" warning is routine
+// noise in this tree, so nothing flagged it.
+//
+// major.minor and not exact equality: a mismatched release LINE is the failure
+// that was actually measured, and a patch-level difference within a line has
+// never been observed to break anything. Failing on it would cry wolf.
+test('checkProfileLockstep accepts a bridge on the same release line as the CLI', () => {
+  const d = profile({ '@deepseek-ai/dsh-hooks-claude-code': '0.1.5-rc.2' })
+  assert.equal(checkProfileLockstep(d, '0.1.5-rc.2').ok, true)
+  assert.equal(checkProfileLockstep(d, '0.1.5-rc.1').ok, true, 'patch drift inside a line is not a failure')
+})
+
+test('checkProfileLockstep catches the 0.0.1 bridge against a 0.1.x CLI', () => {
+  const d = profile({ '@deepseek-ai/dsh-hooks-claude-code': '0.0.1-rc.5' })
+  const r = checkProfileLockstep(d, '0.1.5-rc.2')
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /0\.0\.1/, 'names the bridge version it found')
+  assert.match(r.reason, /0\.1\.5/, 'names the CLI version it was compared against')
+})
+
+test('checkProfileLockstep stays quiet when it cannot compare', () => {
+  // Not a licence to pass: the hook-bridge check already FAILs on a missing
+  // bridge, so reporting it twice would bury the actionable message.
+  for (const [deps, cli] of [[{}, '0.1.5-rc.2'], [{ '@deepseek-ai/dsh-hooks-claude-code': '0.1.5-rc.2' }, '']]) {
+    assert.equal(checkProfileLockstep(profile(deps), cli).ok, true)
+  }
+})

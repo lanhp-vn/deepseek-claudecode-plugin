@@ -69,8 +69,9 @@ there is no point paying to confirm a known-broken install.
 | Check | What a FAIL means | Fix |
 |---|---|---|
 | `node` | below `^22.19.0 \|\| >=24`. A **warning**, not a failure: delegations have run on v22.17.1 | upgrade, and suspect this first if something below is strange |
-| `dsh CLI` | not installed, or unresolvable on this PATH | `npm i -g @deepseek-ai/dsh` |
+| `dsh CLI` | not installed, or unresolvable on this PATH | `npm i -g @deepseek-ai/dsh@0.1.5-rc.2` (pin it; the bridge is version-locked to it) |
 | `hook bridge` | the guard cannot mount; **every** delegation dies at boot | the `dsh plugin --profile headless add` line the check prints |
+| `profile lockstep` | the hook bridge is on a different release line than the CLI. Measured 2026-09-10: that pairing fails **every** tool call and leaves the guard mounted but never firing — a run that looks guarded and is not | re-add the bridge packages pinned to the CLI's exact version; the check prints the command |
 | `API key` | 401 is a bad key, 402 is an empty balance — there is no free tier | `/dsh:setup`, or top up |
 | `dry run` | composition failed before spending. Read the stderr tail it prints | often a path-quoting or overlay error |
 | `hook command` | the exit-code form is wrong for this platform | `hookCommandFor` in `gen-hooks.mjs` |
@@ -82,6 +83,15 @@ there is no point paying to confirm a known-broken install.
 | `guard ran` / `guard health` | a hook exited neither 0 nor 2, so those calls were ALLOWED | the hook command form, or a guard crash |
 | `matcher coverage` | matched calls outnumber decisions: calls are slipping past unhooked and a rule is silently off | the matcher, again |
 | `block path` | a call that had to be refused was not | the exit-code collapse, or a path-spelling gap like the 2026-08-21 one |
+
+`session log` deserves a special mention: read it **before** the decisions
+table. If a run wrote no log the report falls back to the newest log on disk,
+which may belong to a different project, and prints that session's tool calls
+and guard decisions under your run — a stale log is indistinguishable from a
+fresh one by content alone. A session id or cwd slug that does not match the run
+gives it away. Immediately after a harness bump this usually means the log
+filename gained a new version infix (`session.jsonl.zstd` →
+`session.v3.jsonl.zstd` on 2026-09-10), which is `session-report.mjs` to fix.
 
 Two warnings are normal and mean "not proven", not "broken": `--no-spend`
 skipping the live tier, and the delegate declining to attempt a refusable step

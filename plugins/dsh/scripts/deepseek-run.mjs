@@ -511,7 +511,7 @@ async function runDsh (r) {
   const dsh = resolveDsh()
   if (spawnSync(dsh.cmd, [...dsh.pre, '--version'], { stdio: 'ignore' }).error) {
     console.error('deepseek-run: dsh not on PATH. Install it with:')
-    console.error('  npm i -g @deepseek-ai/dsh   (then symlink it onto PATH if needed)')
+    console.error('  npm i -g @deepseek-ai/dsh@0.1.5-rc.2   (then symlink it onto PATH if needed)')
     console.error('Or fall back with: --backend claude-code')
     process.exit(3)
   }

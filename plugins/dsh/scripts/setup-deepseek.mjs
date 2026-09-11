@@ -79,8 +79,9 @@ export function scaffoldMachine (home) {
 // row is what mounts the guard at all -- and dsh refuses to start when the
 // package is not in the profile ("Cannot find package", exit 1 in about a
 // second). dsh-hook-protocol is its peerDependency, which pnpm does NOT install
-// on its own, and the declared peer range (^0.0.1-rc.5) is unsatisfiable
-// because npm's latest is 0.0.1-rc.1; pnpm warns and installs rc.1, which works.
+// on its own. pnpm's "unmet peer" warning is routine noise in this tree and must
+// not be read as a health signal -- it was present throughout the five weeks the
+// bridge sat a whole release line behind the CLI (see checkProfileLockstep).
 //
 // A bare `npm i -g @deepseek-ai/dsh` ships NEITHER. This is the single most
 // likely reason a fresh install fails, so the doctor names it.
@@ -105,6 +106,48 @@ export function checkHookBridge (dshHome) {
   }
   const missing = HOOK_BRIDGE.filter((r) => !(r in deps))
   return { ok: missing.length === 0, missing, reason: missing.length ? 'missing from the headless profile' : '' }
+}
+
+/** The release line of a version string -- "0.1.5-rc.2" -> "0.1.5". */
+const releaseLine = (v) => (String(v ?? '').trim().match(/^v?(\d+\.\d+\.\d+)/) ?? [])[1] ?? ''
+
+/**
+ * Is the hook bridge on the same release line as the CLI driving it?
+ *
+ * The bridge reaches into harness internals and its peerDependencies name the
+ * CLI's own version family, so a mismatched pair is not a style issue: measured
+ * 2026-09-10, a 0.0.1 bridge against a 0.1.x CLI made every tool call fail with
+ * `agent.session.events is not iterable` and stopped the PreToolUse hook from
+ * firing at all -- a guard that is mounted, passes its canary, and never runs.
+ *
+ * Nothing upstream enforces the pairing, and npm cannot hint at it either: these
+ * packages publish a 0.1.x line while their `latest` tag still points at
+ * 0.0.1-rc.*, so an unversioned `dsh plugin ... add` installs the old line
+ * against any CLI. That is why this compares rather than trusts.
+ *
+ * Compares major.minor.patch and not the full pre-release tag: a mismatched
+ * LINE is the failure actually measured, and patch drift within a line has not
+ * been observed to break anything. Returns ok when it cannot compare -- a
+ * missing bridge is checkHookBridge's message to deliver, not this one's.
+ */
+export function checkProfileLockstep (dshHome, cliVersion) {
+  const cli = releaseLine(cliVersion)
+  if (!cli) return { ok: true, reason: '' }
+  const pkg = join(dshHome, 'profiles', 'headless', 'package.json')
+  let deps = {}
+  try { deps = JSON.parse(readFileSync(pkg, 'utf8')).dependencies ?? {} } catch { return { ok: true, reason: '' } }
+  const raw = deps['@deepseek-ai/dsh-hooks-claude-code']
+  const bridge = releaseLine(raw)
+  if (!bridge) return { ok: true, reason: '' }
+  if (bridge === cli) return { ok: true, bridge: raw, cli: cliVersion, reason: '' }
+  return {
+    ok: false,
+    bridge: raw,
+    cli: cliVersion,
+    reason: `hook bridge is ${raw} but the CLI is ${String(cliVersion).trim()}. `
+      + 'They are version-locked: a mismatched pair fails every tool call and can leave the guard '
+      + `mounted but never firing. Fix: dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code@${String(cliVersion).trim()} @deepseek-ai/dsh-hook-protocol@${String(cliVersion).trim()} @deepseek-ai/dsh-session-projection@${String(cliVersion).trim()}`,
+  }
 }
 
 /**

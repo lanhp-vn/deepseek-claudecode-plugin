@@ -51,7 +51,7 @@ If the marketplace add fails and you want the clone kept for inspection, set
 ### 2. The harness
 
 ```sh
-npm i -g @deepseek-ai/dsh@0.1.1-rc.2   # the default backend -- pinned, see CLAUDE.md "Upstream hazards"
+npm i -g @deepseek-ai/dsh@0.1.5-rc.2   # the default backend -- pinned; CLI and bridge MUST match
 npm i -g pnpm                  # needed by `dsh plugin ... add` below
 ```
 
@@ -65,13 +65,22 @@ module actually fails do you need `npm approve-scripts node-pty`.
 ### 3. The hook bridge — **do not skip this**
 
 ```sh
-dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-ai/dsh-hook-protocol
+dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code@0.1.5-rc.2 \
+  @deepseek-ai/dsh-hook-protocol@0.1.5-rc.2 @deepseek-ai/dsh-session-projection@0.1.5-rc.2
 ```
 
-A bare `dsh` install ships **neither**, and without them **every delegation dies
-at boot**. The wrapper mounts the guard by inserting a row naming
+A bare `dsh` install ships **none of them**, and without them **every delegation
+dies at boot**. The wrapper mounts the guard by inserting a row naming
 `@deepseek-ai/dsh-hooks-claude-code`; dsh cannot resolve it and exits 1 in about
 a second with `Cannot find package`.
+
+**The versions are pinned on purpose, and must match the CLI.** The bridge is
+version-locked to the harness, but its npm `latest` tag still points at an old
+`0.0.1` line while the package also publishes `0.1.x` — so dropping the
+`@0.1.5-rc.2` suffixes installs a bridge a whole release line behind whatever CLI
+you have. Measured 2026-09-10, that pairing fails every tool call *and* leaves
+the guard mounted but never firing, which is the one failure this whole design
+exists to prevent. `/dsh:test` has a `profile lockstep` check for exactly this.
 
 `dsh-hook-protocol` is that package's peerDependency, which pnpm does not
 install on its own. Its declared peer range (`^0.0.1-rc.5`) is unsatisfiable —
@@ -205,15 +214,17 @@ needs the Claude Code slash-command interface (which you cannot invoke).
 2. Tell me to run `/plugin marketplace add nouslogic/deepseek-claudecode-plugin`
    and then `/plugin install dsh@nouslogic`. Wait for me to confirm.
 3. Check whether `dsh` is on PATH. If not, tell me to run
-   `npm i -g @deepseek-ai/dsh@0.1.1-rc.2` and `npm i -g pnpm`, and warn that npm
+   `npm i -g @deepseek-ai/dsh@0.1.5-rc.2` and `npm i -g pnpm`, and warn that npm
    may install to a directory that is not on PATH. The version is pinned, not a
-   typo -- see CLAUDE.md's "Upstream hazards" for why `latest` is unsafe right
-   now, and check whether that note is still current before using it.
+   typo: the hook bridge is version-locked to the CLI and their npm `latest`
+   tags do NOT agree, so an unpinned install of either half silently skews the
+   two -- see CLAUDE.md's "Upstream hazards".
 4. THE STEP MOST LIKELY TO BE SKIPPED. Check whether the hook bridge is present:
    read `$DSH_HOME/profiles/headless/package.json` (default `~/.dsh`) and confirm
    BOTH `@deepseek-ai/dsh-hooks-claude-code` and `@deepseek-ai/dsh-hook-protocol`
    are dependencies. If either is missing, tell me to run:
-       dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code @deepseek-ai/dsh-hook-protocol
+       dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code@0.1.5-rc.2 \
+      @deepseek-ai/dsh-hook-protocol@0.1.5-rc.2 @deepseek-ai/dsh-session-projection@0.1.5-rc.2
    Explain that a bare `dsh` install ships neither, that the wrapper mounts the
    guard by naming the first package, and that without them dsh exits 1 at boot
    with `Cannot find package` — every delegation fails, not just some.

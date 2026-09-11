@@ -47,7 +47,14 @@ const slash = (p) => String(p ?? '').split('\\').join('/')
 /** The `session-<uuid>` directory holding the log -- the most useful label for it. */
 export const sessionLabel = (p) => slash(p).split('/').slice(-2, -1)[0] ?? '(unknown session)'
 
-/** Newest session.jsonl.zstd anywhere under sessions/, by mtime. */
+// The log basename dsh writes. Version-agnostic on purpose: 0.1.1-rc.2 wrote
+// `session.jsonl.zstd` and 0.1.5-rc.2 writes `session.v3.jsonl.zstd` (measured
+// 2026-09-10). An exact match made a renamed log invisible, and findNewestLog
+// then returned an UNRELATED project's log, which the report printed as if it
+// belonged to the run -- see session-report.test.mjs.
+const LOG_NAME = /^session(\..+)?\.jsonl\.zstd$/
+
+/** Newest session log anywhere under sessions/, by mtime. */
 export function findNewestLog (sessionsDir) {
   if (!existsSync(sessionsDir)) return null
   const found = []
@@ -58,7 +65,7 @@ export function findNewestLog (sessionsDir) {
     for (const e of entries) {
       const p = join(dir, e.name)
       if (e.isDirectory()) walk(p, depth + 1)
-      else if (e.name === 'session.jsonl.zstd') {
+      else if (LOG_NAME.test(e.name)) {
         try { found.push([statSync(p).mtimeMs, p]) } catch { /* raced */ }
       }
     }
