@@ -9,7 +9,7 @@
 // layer through resolveRun() without launching anything.
 //
 // Usage:
-//   deepseek-run.mjs [--backend dsh|claude-code] [-C <dir>] [-m pro|flash]
+//   deepseek-run.mjs [--backend dsh|claude-code] [-C <dir>] [-m flash]
 //                    [--frozen <path>]... [--allow-test "<cmd>"]
 //                    [--overlay <file>]... [--no-overlay] "<brief>"
 //   deepseek-run.mjs [-C <dir>] -f <brief-file>
@@ -47,10 +47,32 @@ import { runCanary, PROBE_PATH } from './canary.mjs'
 // is invoked from any directory, so `here` is the only stable anchor.
 const here = dirname(fileURLToPath(import.meta.url))
 
+// The ONE model id this wrapper writes, for both backends.
+//
+// Measured 2026-09-10 against https://api-docs.deepseek.com/updates/: V4.1-Flash
+// shipped that day as `deepseek-flash`, and every id this wrapper used before it
+// became a legacy alias. `deepseek-v4-pro` is retiring -- after 2026-09-14 its
+// requests route to V4.1-Flash and bill at the flash price -- while
+// `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are "temporarily
+// routed" to the same place. DeepSeek's own note: "V4.1 Flash has
+// comprehensively surpassed V4 Pro", so pro bought nothing but a 3x bill even
+// before the retirement.
+//
+// NO `[1m]` SUFFIX. The claude-code backend used to write `deepseek-v4-flash[1m]`
+// to select a 1M-context variant. As of 2026-09-10 the pricing page lists no
+// separate variant id and gives `deepseek-flash` a 1M context (384K max output)
+// on its own, and DeepSeek's Anthropic-compatibility guide spells it bare in its
+// own example. A suffix that no longer names anything is a silently-wrong model
+// id on the one backend reached for when the default breaks.
+//
+// One constant, not one per backend: this file has drifted on paired values
+// before (see the matcher/switch note in CLAUDE.md).
+const MODEL_ID = 'deepseek-flash'
+
 const USAGE = `deepseek-run.mjs: run one delegated implementation task on DeepSeek V4.
 
 Usage:
-  deepseek-run.mjs [--backend dsh|claude-code] [-C <dir>] [-m pro|flash]
+  deepseek-run.mjs [--backend dsh|claude-code] [-C <dir>] [-m flash]
                    [--frozen <path>]... [--allow-test "<cmd>"]
                    [--overlay <file>]... [--no-overlay] "<brief>"
   deepseek-run.mjs [-C <dir>] -f <brief-file>
@@ -78,7 +100,7 @@ class Help extends Error {}
  */
 export function resolveRun (argv) {
   let dir = process.cwd()
-  let model = 'pro'
+  let model = 'flash'
   let effort = 'high'
   let backend = 'dsh'
   let prompt = ''
@@ -112,7 +134,21 @@ export function resolveRun (argv) {
     switch (a) {
       case '-C': case '--cd': dir = req('a directory'); break
       case '-f': case '--file': briefFile = req('a file path'); break
-      case '-m': case '--model': model = req('pro|flash'); break
+      // `flash` is the only model, so -m can only ever restate the default. It
+      // stays accepted (callers and dsh-doctor pass it) but any OTHER value is
+      // a loud refusal rather than a quiet remap: the house failure mode here is
+      // silent acceptance, and a run that ignored `-m pro` while reporting
+      // success would be exactly that. See MODEL_ID.
+      case '-m': case '--model': {
+        const v = req('flash')
+        if (v !== 'flash') {
+          throw new UsageError(
+            `-m ${v}: only 'flash' is supported. deepseek-v4-pro is retiring -- after `
+            + '2026-09-14 DeepSeek routes its requests to V4.1-Flash anyway')
+        }
+        model = v
+        break
+      }
       case '-e': case '--effort': effort = req('high|max'); break
       case '--backend': backend = req('dsh|claude-code'); break
       case '--frozen': frozen.push(req('a path')); break
@@ -389,9 +425,7 @@ async function runDsh (r) {
     process.exit(2)
   }
 
-  const modelId = r.model === 'pro' ? 'deepseek-v4-pro'
-    : r.model === 'flash' ? 'deepseek-v4-flash'
-      : r.model
+  const modelId = MODEL_ID
 
   // Quoting a PATH into generated YAML. In a DOUBLE-quoted scalar a backslash
   // opens an escape, so `C:Usersphamh` is `U` -- "expected hexadecimal
@@ -505,19 +539,15 @@ async function runDsh (r) {
 // Backend: claude-code (the original route)
 // ---------------------------------------------------------------------------
 function runClaudeCode (r) {
-  // `[1m]` selects the 1M-token context variant; both IDs come from DeepSeek's
-  // own Claude Code guide, not from guesswork.
-  const modelId = r.model === 'pro' ? 'deepseek-v4-pro[1m]'
-    : r.model === 'flash' ? 'deepseek-v4-flash[1m]'
-      : r.model
+  const modelId = MODEL_ID
 
-  // deepseek-v4-pro accepts only high and max. `low` does NOT error: it is
-  // silently accepted (verified live 2026-08-09), so a typo would quietly change
-  // behaviour rather than failing loudly. Catch it here instead.
-  if (r.model === 'pro' && r.effort !== 'high' && r.effort !== 'max') {
-    console.error(`deepseek-run: pro supports only -e high|max (got '${r.effort}'); the API accepts it silently`)
-    process.exit(2)
-  }
+  // The pro-only `-e high|max` check that used to live here is GONE with the
+  // model. It existed because deepseek-v4-pro silently accepted `low` (verified
+  // live 2026-08-09) instead of erroring, so a typo changed behaviour quietly.
+  // Whether deepseek-flash rejects, honours or silently swallows an effort value
+  // is NOT established -- the 2026-09-10 docs do not say -- so nothing here
+  // claims it does. Treat `-e` as unverified against V4.1-Flash and confirm from
+  // the session log, not from this flag, that a run did what you asked.
 
   if (r.dry) {
     console.error(`>>> deepseek-run: DRY RUN (backend: claude-code)  model: ${modelId}  dir: ${r.dir}`)
@@ -569,7 +599,9 @@ function runClaudeCode (r) {
     ANTHROPIC_MODEL: modelId,
     ANTHROPIC_DEFAULT_OPUS_MODEL: modelId,
     ANTHROPIC_DEFAULT_SONNET_MODEL: modelId,
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash[1m]',
+    // Was a separately-spelled legacy flash id; there is only one model now, so
+    // the cheap-tier var points at it too rather than at a stale alias.
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: modelId,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     CLAUDE_CODE_EFFORT_LEVEL: r.effort,
   }

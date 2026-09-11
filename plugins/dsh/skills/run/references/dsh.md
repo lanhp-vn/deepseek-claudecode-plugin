@@ -70,8 +70,8 @@ Confirmed present in the real composed tree (`dsh --profile headless --dump-conf
 all bundle layers, which the bundle sources alone do not.
 
 ```yaml
-- id: agent-default-model          # ships as flash, NOT pro
-  config: {provider: deepseek-official, model: deepseek-v4-flash}
+- id: agent-default-model          # deepseek-flash is the only model (2026-09-10)
+  config: {provider: deepseek-official, model: deepseek-flash}
 
 - id: sandbox-policy
   config:

@@ -71,7 +71,7 @@ test('dry-run composes the run artifacts and exits 0', async () => {
 })
 
 test('the patch carries every per-run choice', () => {
-  assert.ok(has(composed, 'deepseek-v4-flash', 'patch.yml'), 'selects the requested model')
+  assert.ok(has(composed, 'deepseek-flash', 'patch.yml'), 'selects the requested model')
   assert.ok(has(composed, ws, 'patch.yml'), 'pins the workspace root')
   assert.ok(has(composed, 'dsh-hooks-claude-code', 'patch.yml'), 'mounts the hook bridge')
   assert.ok(has(composed, 'workspace-write', 'patch.yml'), 'sets the permission mode')
@@ -106,10 +106,41 @@ test('the policy records what will actually be enforced', () => {
   assert.ok(has(composed, 'pytest', 'guard-env.sh', 'policy.json'), 'allow-cmd recorded')
 })
 
-test('-m pro reaches the patch too', async () => {
+// deepseek-flash is the only model. These three cases are the contract: the
+// default needs no flag, `-m flash` still works because callers and dsh-doctor
+// pass it, and any other value is REFUSED rather than quietly remapped -- a run
+// that ignored `-m pro` and reported success is the silent acceptance this
+// project treats as the house failure mode.
+test('the default model needs no flag and is flash', async () => {
   const d = dryDir()
-  await runWrapper(['-C', ws, '-m', 'pro', '--dry-run', '--dry-run-dir', d, 'x'])
-  assert.ok(has(d, 'deepseek-v4-pro', 'patch.yml'), 'pro selects deepseek-v4-pro')
+  await runWrapper(['-C', ws, '--dry-run', '--dry-run-dir', d, 'x'])
+  assert.ok(has(d, 'deepseek-flash', 'patch.yml'), 'defaults to deepseek-flash')
+})
+
+test('-m flash is still accepted', async () => {
+  const d = dryDir()
+  const r = await runWrapper(['-C', ws, '-m', 'flash', '--dry-run', '--dry-run-dir', d, 'x'])
+  assert.equal(r.code, 0, `-m flash exits 0 (stderr: ${r.stderr.slice(0, 400)})`)
+  assert.ok(has(d, 'deepseek-flash', 'patch.yml'), 'writes deepseek-flash')
+})
+
+test('-m pro is refused loudly, not remapped', async () => {
+  const d = dryDir()
+  const r = await runWrapper(['-C', ws, '-m', 'pro', '--dry-run', '--dry-run-dir', d, 'x'])
+  // Exit 2 specifically: a caller treating a non-2 exit as "carry on" is the
+  // fail-open this wrapper exits 2 everywhere to avoid.
+  assert.equal(r.code, 2, `-m pro exits 2 (stderr: ${r.stderr.slice(0, 400)})`)
+  assert.match(r.stderr, /only 'flash' is supported/, 'names the one supported model')
+  assert.match(r.stderr, /2026-09-14/, 'names the retirement date')
+  // And it composed NOTHING -- a refusal that still wrote a patch would leave a
+  // pro-shaped artifact on disk for a later run to pick up.
+  assert.ok(!has(d, 'deepseek-v4-pro', 'patch.yml'), 'wrote no pro patch')
+  assert.ok(!has(d, 'deepseek-flash', 'patch.yml'), 'did not silently remap to flash')
+})
+
+test('a legacy model id is refused as well', async () => {
+  const r = await runWrapper(['-C', ws, '-m', 'deepseek-v4-flash', '--dry-run', '--dry-run-dir', dryDir(), 'x'])
+  assert.equal(r.code, 2, 'a legacy alias is not a pass-through')
 })
 
 test('default backend is dsh', async () => {

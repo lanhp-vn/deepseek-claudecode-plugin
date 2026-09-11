@@ -250,6 +250,38 @@ below was a real, shipped bug; none is theoretical.
 
 ## Upstream hazards
 
+**The model catalogue moves faster than the CLI, and every id this wrapper ever
+wrote is now dead or legacy.** Measured 2026-09-10 from
+`https://api-docs.deepseek.com/updates/` and the pricing page: V4.1-Flash
+shipped that day as `deepseek-flash`; `deepseek-v4-pro` retires 2026-09-14, at
+which point its requests route to V4.1-Flash and bill at the flash price;
+`deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are legacy aliases
+"temporarily routed" to the same model. `deepseek-chat` and `deepseek-reasoner`
+had already gone on 2026-07-24. That is **four** id changes in under three
+months, so the model id is a fast-moving upstream in its own right and belongs
+in the `/dsh:update` sweep next to the CLI.
+
+Two consequences shaped the code:
+
+- **One constant, `MODEL_ID` in `deepseek-run.mjs`, for both backends.** It used
+  to be two ternaries — a plain id for the headless patch and a `[1m]`-suffixed
+  one for claude-code — which is the same paired-value drift hazard as the
+  matcher/switch pair. The `[1m]` suffix is gone: the 2026-09-10 pricing page
+  lists no separate 1M variant id, gives `deepseek-flash` a 1M context and 384K
+  max output on its own, and DeepSeek's Anthropic-compatibility guide spells it
+  bare. A suffix naming nothing would have been a silently-wrong model id on the
+  fallback backend — the one reached for precisely when the default is broken.
+- **`-m` refuses an unsupported value instead of remapping it.** Remapping
+  `-m pro` to flash would have been free and invisible, which is exactly the
+  silent-acceptance class this repo keeps getting bitten by; the run would have
+  ignored an explicit flag and still reported success. The pro-only
+  `-e high|max` check was deleted with the model rather than re-pointed at
+  flash: whether flash rejects, honours or silently swallows an effort value is
+  **not** documented, and the old check's whole reason for existing was that pro
+  accepted `low` silently (verified live 2026-08-09). Re-asserting an unverified
+  constraint would have been a guess wearing a measurement's clothes. `-e` is
+  therefore unverified against V4.1-Flash — read the session log, not the flag.
+
 The harness CLI itself is a moving preview dependency (`/dsh:update`'s own
 warning: "a new rc can move the headless command line, the patch-row ids the
 wrapper writes, or the session-log format"). These are not platform-specific;
@@ -273,6 +305,28 @@ they were found by upgrading `dsh` in place, not by changing anything here.
   tested and are assumed bad only because they sit between two confirmed-bad
   points (`alpha.2` and `rc.1`) in the same pre-release line. `0.1.1-rc.2` is
   the version to install until DeepSeek ships a fixed `0.1.2`.
+
+  **Re-tested 2026-09-10 against `0.1.5-rc.1` (then npm `latest`): still
+  broken, identically.** Every tool call in the live delegation failed with the
+  same `agent.session.events is not iterable`, the delegate produced nothing,
+  and no session log was written at all. So the regression has survived
+  `0.1.2` → `0.1.5` and is not a one-release accident; assume the whole line
+  after `0.1.1-rc.2` is bad and re-test by measurement, not by version number,
+  before moving the pin. The bump did **not** re-migrate
+  `$DSH_HOME/.credentials.yaml` (already nested here, and byte-identical
+  afterwards), and the rollback to `0.1.1-rc.2` was clean — all checks passed
+  again immediately.
+
+  One reporting hazard found doing this, worth knowing before reading a failed
+  doctor run: because the broken CLI wrote **no** session log, `session-report`
+  fell back to the newest log on disk, which was the *previous*, healthy run.
+  The report therefore printed a "Guard decisions" block showing 4 decisions
+  and 2 blocks — belonging to a different session — under a run where the guard
+  had done nothing. The `session log` check (`no session log newer than this
+  run`) is the only thing that caught it, and `delegate worked` warned as well.
+  Read those two before believing a decisions table; a stale log is
+  indistinguishable from a healthy one by content alone. The giveaway is an
+  unchanged session id and identical token counts across two runs.
 - **A version bump can migrate `$DSH_HOME/.credentials.yaml` to a shape an
   older CLI cannot read, and a downgrade does not migrate it back.** Also
   measured 2026-09-04: `0.1.2-rc.1` rewrote the file from the flat mapping

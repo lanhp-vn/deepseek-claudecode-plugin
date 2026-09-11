@@ -14,17 +14,36 @@ forward rather than quietly promoting them to fact.
 
 ## Models
 
-| Model ID | Use | Context | Reasoning |
-|---|---|---|---|
-| `deepseek-v4-pro` | flagship; complex agentic work | 1M | yes |
-| `deepseek-v4-flash` | cheaper, faster, still reasons | 1M | yes |
+Updated **2026-09-10** from <https://api-docs.deepseek.com/updates/> and the
+pricing page. The table below replaced a `pro`/`flash` pair; read the
+retirements underneath it before using any other id.
 
-`deepseek-chat` and `deepseek-reasoner` were **discontinued on 2026-07-24**
-(announced 2026-04-24). Any guide still using those names is stale, which is a
-useful staleness test for third-party blog posts and tool docs.
+| Model ID | Use | Context | Max output | Reasoning |
+|---|---|---|---|---|
+| `deepseek-flash` | **the only current model** (V4.1-Flash); native multimodal vision | 1M | 384K | yes |
 
-Add the `[1m]` suffix (`deepseek-v4-pro[1m]`) when selecting the 1M-context
-variant through the Anthropic-compatible endpoint.
+DeepSeek's own release note: *"After extensive testing, V4.1 Flash has
+comprehensively surpassed V4 Pro."*
+
+Retirements, newest first — **four id changes in under three months**, so treat
+any model id you did not read off the docs page today as suspect:
+
+| Id | Status |
+|---|---|
+| `deepseek-v4-pro` | **retires 2026-09-14**; after that its requests route to V4.1-Flash and bill at the flash price |
+| `deepseek-v4-flash` | legacy alias, "temporarily routed" to V4.1-Flash |
+| `deepseek-v4-flash-vision-exp` | legacy alias, "temporarily routed" to V4.1-Flash |
+| `deepseek-chat`, `deepseek-reasoner` | **discontinued 2026-07-24** (announced 2026-04-24) |
+
+Any guide still using the discontinued names is stale, which is a useful
+staleness test for third-party blog posts and tool docs.
+
+**There is no `[1m]` suffix any more.** This file previously said to add one
+(`deepseek-v4-pro[1m]`) to select the 1M-context variant through the
+Anthropic-compatible endpoint. As of 2026-09-10 the pricing page lists **no**
+separate variant id, `deepseek-flash` carries 1M context on its own, and
+DeepSeek's Anthropic guide spells the id bare in its own example. `deepseek-run.mjs`
+writes the unsuffixed id on both backends.
 
 Source: <https://api-docs.deepseek.com/updates/>, <https://api-docs.deepseek.com/api/create-chat-completion>
 
@@ -36,10 +55,13 @@ Source: <https://api-docs.deepseek.com/updates/>, <https://api-docs.deepseek.com
 | OpenAI Responses | `https://api.deepseek.com` |
 | Anthropic Messages | `https://api.deepseek.com/anthropic` |
 
-The Anthropic endpoint maps Claude names onto DeepSeek automatically: Opus →
-`deepseek-v4-pro`, Sonnet/Haiku → `deepseek-v4-flash`. An unrecognised model
-name silently falls back to flash, so a typo downgrades the model rather than
-raising an error.
+The Anthropic endpoint maps Claude names onto DeepSeek automatically. Read
+2026-09-10: Opus → `deepseek-v4-pro`, Sonnet/Haiku → `deepseek-flash` — and
+since pro's requests route to V4.1-Flash from 2026-09-14, every Claude name
+lands on the same model after that date. An unrecognised model name silently
+falls back to flash, so a typo downgrades the model rather than raising an
+error; `deepseek-run.mjs` sets all three `ANTHROPIC_*_MODEL` variables
+explicitly rather than relying on the mapping.
 
 ## Thinking mode
 
@@ -47,7 +69,7 @@ raising an error.
 
 ```json
 {
-  "model": "deepseek-v4-pro",
+  "model": "deepseek-flash",
   "messages": [{"role": "user", "content": "..."}],
   "thinking": {"type": "enabled"},
   "reasoning_effort": "high"
@@ -55,10 +77,14 @@ raising an error.
 ```
 
 - `reasoning_effort`: `low` | `high` (default) | `max`.
-- The docs say `deepseek-v4-pro` supports only `high` and `max`. **A live test on
-  2026-08-09 showed `low` is silently accepted on pro**: no error, no warning.
-  So a wrong effort value changes behaviour without ever failing loudly, which
-  is why `deepseek-run.mjs` rejects it client-side instead.
+- **UNVERIFIED against `deepseek-flash`.** The docs said `deepseek-v4-pro`
+  supported only `high` and `max`, and a live test on 2026-08-09 showed `low`
+  was silently accepted on pro — no error, no warning. `deepseek-run.mjs` used
+  to reject `low` client-side for that reason; that check was **removed with
+  the model** on 2026-09-10 rather than re-pointed at flash, because the docs
+  do not say what flash does with an effort value and re-asserting an
+  unverified constraint would be a guess dressed as a measurement. Confirm from
+  the session log what a run actually did.
 - Chain-of-thought comes back in a separate `reasoning_content` field.
 - With thinking on, `temperature`, `top_p`, `presence_penalty` and
   `frequency_penalty` are silently ignored (UNVERIFIED: reported in research,
@@ -66,12 +92,20 @@ raising an error.
 
 ## Cost
 
-Per 1M tokens, USD, read from the pricing page 2026-08-09:
+Per 1M tokens, USD, re-read from the pricing page **2026-09-10**. Prices are now
+quoted per-period, and the off-peak/peak spread is 2x — the earlier single-column
+figures below it (read 2026-08-09) did not distinguish them:
 
 | Model | Input (cache miss) | Input (cache hit) | Output |
 |---|---|---|---|
-| `deepseek-v4-pro` | $0.435 | $0.003625 | $0.87 |
-| `deepseek-v4-flash` | $0.14 | $0.0028 | $0.28 |
+| `deepseek-flash` off-peak | $0.15 | $0.003 | $0.60 |
+| `deepseek-flash` peak | $0.30 | $0.006 | $1.20 |
+| `deepseek-v4-pro` off-peak (retiring 2026-09-14) | $0.66 | $0.022 | $1.98 |
+| `deepseek-v4-pro` peak (retiring 2026-09-14) | $1.32 | $0.044 | $3.96 |
+
+Note the direction of travel: flash's own output price went from $0.28 to $0.60
+off-peak between 2026-08-09 and 2026-09-10, so the pricing-page warning below
+is not hypothetical — it already happened, roughly doubling.
 
 The pricing page carries its own warning: *"We plan to raise the overall pricing
 for DeepSeek API services in the near future, with a significant increase

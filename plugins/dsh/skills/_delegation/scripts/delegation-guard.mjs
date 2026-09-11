@@ -79,6 +79,19 @@ const slash = (p) => String(p ?? '').split('\\').join('/')
 
 const frozen = (policy.frozen ?? []).map(slash)
 const allowCmd = policy.allowCmd ?? ''
+// Comparisons run against this stripped form; error messages still show
+// allowCmd verbatim. Without this, an --allow-test value that itself starts
+// with VAR=value (e.g. `UV_NO_SYNC=1 uv run pytest ...`) can never match,
+// because the probe below strips ALL leading assignments while allowCmd kept
+// its own -- a prefix check comparing a stripped string against an
+// unstripped one that is always false. Measured 2026-09-07.
+const stripLeadingAssignments = (s) => {
+  let out = s
+  let m
+  while ((m = out.match(/^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/))) out = out.slice(m[0].length)
+  return out
+}
+const allowCmdCore = stripLeadingAssignments(allowCmd)
 const denyPath = (policy.denyPath ?? []).map(slash)
 const denyCmd = policy.denyCmd ?? []
 const denyTool = policy.denyTool ?? []
@@ -326,10 +339,8 @@ switch (tool) {
     // write ~/.cache/uv under workspace-write), and a bare prefix match
     // rejected the very form the sandbox required -- the guard blocking its own
     // sandbox's workaround.
-    let probe = cmd
-    let m
-    while ((m = probe.match(/^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/))) probe = probe.slice(m[0].length)
-    if (probe.startsWith(allowCmd)) process.exit(0)
+    const probe = stripLeadingAssignments(cmd)
+    if (probe.startsWith(allowCmdCore)) process.exit(0)
     die(`BLOCKED: only '${allowCmd}' is permitted (leading VAR=value assignments are allowed). Got: ${cmd}`)
   }
 }

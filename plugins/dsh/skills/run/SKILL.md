@@ -42,9 +42,10 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/deepseek-run.mjs -C "$PWD" \
   -f /tmp/brief.md
 ```
 
-**No `-m`: `pro` is the default and the standing choice here.** `deepseek-run.mjs`
-defaults to `pro` and writes `deepseek-v4-pro` into the run's patch, so a
-delegation you launch without thinking about the model gets the good one.
+**No `-m`: there is one model.** `deepseek-run.mjs` writes `deepseek-flash`
+(V4.1-Flash) into every run's patch. `-m flash` is accepted and does nothing;
+**any other value is refused with exit 2** rather than quietly remapped. If you
+have a habit of typing `-m pro`, drop it — see "One model" below for why.
 
 `${CLAUDE_PLUGIN_ROOT}` is not set in an ordinary shell, so when running these
 through Bash resolve the cache path instead:
@@ -76,7 +77,7 @@ it because the default works today.
 | Flag | Meaning |
 |---|---|
 | `-C <dir>` | repo to work in; also the sandbox's workspace root |
-| `-m pro\|flash` | model. **Defaults to `pro`, and `pro` is the house choice** — pass nothing. `flash` is an explicit opt-out for bulk mechanical work, never something to drift into |
+| `-m flash` | model. **Pass nothing** — `deepseek-flash` is the only model and the default. `-m flash` is a no-op; anything else exits 2 |
 | `--frozen <path>` | repeatable; these files cannot be written (see the guard) |
 | `--allow-test "<cmd>"` | the only shell command the delegate may run |
 | `-f <file>` | brief from a file; avoids shell-quoting fights |
@@ -261,9 +262,12 @@ be empty, and a report read from the delegate's own durable session log: each
 tool call with its arguments, each guard decision, and the token totals.
 
 This is the answer to the house failure mode, which is **silent acceptance** — a
-bad model name falls back to `flash`, a bad effort value is ignored, an image
+bad model name falls back to flash, a bad effort value is ignored, an image
 becomes placeholder text, and nothing raises an error. Confirm from the log what
-actually ran rather than assuming your flags took effect.
+actually ran rather than assuming your flags took effect. The wrapper refuses a
+bad `-m` before spending anything, but `-e` is **not** verified against
+V4.1-Flash: whether flash rejects, honours or silently swallows an effort value
+is not documented, so read the log rather than trusting the flag.
 
 Untracked files hide from `git diff`, so read the `git status --short` section
 too; a migration that adds 146 files otherwise reports as `1 file changed`.
@@ -275,19 +279,31 @@ neither 0 nor 2. That is the backstop behind the canary.
 
 DeepSeek bills per token with no subscription, so waste shows up on the invoice.
 It is cheaper than the caution suggests: **seven delegations during one
-afternoon's testing cost three cents in total**, about half a cent each — that
-measurement was on `flash`, so budget roughly three times it now that `pro` is
-the default. The point of the discipline below is not pennies, it is not being
+afternoon's testing cost three cents in total**, about half a cent each — and
+that measurement was on flash, which is now the only model, so it applies
+directly. The point of the discipline below is not pennies, it is not being
 surprised.
 
-**`pro` is the default and stays the default.** It costs about 3x `flash` per
-token, and that is the trade this project has chosen: a wrong implementation
-costs a review cycle and a re-run, which is worth more than the token
-difference on the kind of work delegated here. `-m flash` still exists and is a
-reasonable *explicit* choice for genuinely mechanical bulk — renames, format
-conversion, boilerplate — but it is an opt-out, not the resting state. Both
-carry a 1M context window, so `flash` is not a "small" model; `dsh-doctor` uses
-it for the self-test because that run proves plumbing, not reasoning.
+**One model: `deepseek-flash`.** There is no model choice left to make, and the
+old `pro`-by-default trade is gone with the model. Measured 2026-09-10 from
+DeepSeek's own release notes and pricing page:
+
+- V4.1-Flash shipped as `deepseek-flash`, and DeepSeek's note reads "V4.1 Flash
+  has comprehensively surpassed V4 Pro" — so the reasoning premium that
+  justified `pro` no longer buys anything.
+- **`deepseek-v4-pro` is retiring.** After **2026-09-14** its requests are
+  routed to V4.1-Flash and billed at the flash price regardless, so `-m pro`
+  would have become a slower way to reach the same model.
+- `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are legacy aliases,
+  "temporarily routed" to the same place. The wrapper writes none of them.
+
+Flash is not a "small" model: 1M context, 384K max output, `$0.15` in / `$0.60`
+out per 1M tokens off-peak (against pro's `$0.66` / `$1.98`). Cache hits cost
+`$0.003`. Peak rates are double throughout.
+
+The wrapper **refuses** `-m pro` with exit 2 instead of remapping it, because a
+run that ignored your flag and reported success is the silent acceptance this
+page warns about two sections down.
 
 **Reasoning tokens bill at the output rate and usually dominate.** One measured
 19-step run spent 16,526 reasoning tokens out of 19,836 output. On a short
@@ -365,8 +381,11 @@ caveats first.
   false positive on the common case, so a pathless grep stays uncovered — the
   primary control for secrets is to delegate in a git worktree, where the
   gitignored directory does not exist at all.
-- **Model names change.** `deepseek-chat` and `deepseek-reasoner` were
-  discontinued 2026-07-24. Any tutorial still using them is stale.
+- **Model names change, fast.** `deepseek-chat` and `deepseek-reasoner` were
+  discontinued 2026-07-24. `deepseek-v4-pro` retires 2026-09-14, and
+  `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` are already legacy
+  aliases routed elsewhere. `deepseek-flash` is the current id. Any tutorial —
+  or any earlier version of this plugin — using the others is stale.
 - **Prices are rising.** The pricing page carries its own warning. Re-read it
   before quoting a number to anyone.
 - **No free tier.** A `402` means an empty balance, not a bad request.

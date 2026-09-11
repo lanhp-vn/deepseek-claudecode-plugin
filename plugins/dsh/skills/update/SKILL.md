@@ -111,14 +111,17 @@ the CLI back does NOT migrate it back — the next boot fails with a raw
 `TypeError` stack trace instead of a graceful error. See CLAUDE.md's "Upstream
 hazards" for the fix if this happens.
 
-As of 2026-09-04, `npm view @deepseek-ai/dsh version` (`latest`) resolves to
-`0.1.2-rc.1`, a version confirmed to unmount the guard entirely (see "When an
-update breaks something" below) — check that note before running a bare
-install, and if it is still current, install the pinned known-good version by
-name instead of `latest`:
+As of **2026-09-10**, `npm view @deepseek-ai/dsh version` (`latest`) resolves to
+`0.1.5-rc.1`, which was tested that day and is **still broken in exactly the
+same way** as `0.1.2-rc.1`: every tool call fails with `agent.session.events is
+not iterable`, the delegate produces nothing, and no session log is written
+(see "When an update breaks something" below). The regression has now survived
+`0.1.2` → `0.1.5`, so treat every version above the pin as bad until a live
+doctor run says otherwise. Install the pinned known-good version by name, never
+`latest`:
 
 ```bash
-npm i -g @deepseek-ai/dsh@0.1.1-rc.2   # pinned -- see the 2026-09-04 note below before changing this
+npm i -g @deepseek-ai/dsh@0.1.1-rc.2   # pinned -- see the 2026-09-10 note below before changing this
 ```
 
 On a machine where npm's global bin is not on PATH, the existing symlink
@@ -190,3 +193,12 @@ pre-release line is suspect until DeepSeek ships a fix. The remedy right now is
 `npm i -g @deepseek-ai/dsh@0.1.1-rc.2`, not chasing the bug in this repo, and
 not trusting a plain `npm i -g @deepseek-ai/dsh` (which installs `latest`)
 until this note is updated.
+
+Re-tested 2026-09-10 on `0.1.5-rc.1`: same failure, so it is not confined to
+`0.1.2`. The rollback was clean (credentials file untouched, all checks green
+again straight after), so testing a new version costs one live doctor run and
+nothing else — but **read the `session log` check before the decisions table**.
+The broken CLI writes no log, so the report falls back to the newest log on
+disk and can print the *previous* healthy run's guard decisions under a run
+where the guard never fired. An unchanged session id and identical token counts
+across two runs is the tell.

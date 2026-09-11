@@ -43,14 +43,14 @@ const DENY_PATH = ['credentials/**', '.env', '**/*.enc']
 const DENY_CMD = ['git push', 'adb * shell reboot', '*scripts/demos/*', 'distil model run-training']
 const DENY_TOOL = ['mcp__gitnexus__cypher']
 
-function runBash (payload) {
+function runBash (payload, allow = ALLOW) {
   return new Promise((r) => {
     const p = spawn('bash', [BASH], {
       cwd,
       env: {
         ...process.env,
         DELEGATION_FROZEN: FROZEN,
-        DELEGATION_ALLOW_CMD: ALLOW,
+        DELEGATION_ALLOW_CMD: allow,
         DELEGATION_DENY_PATH: DENY_PATH.join('\n'),
         DELEGATION_DENY_CMD: DENY_CMD.join('\n'),
         DELEGATION_DENY_TOOL: DENY_TOOL.join('\n'),
@@ -61,9 +61,9 @@ function runBash (payload) {
   })
 }
 
-function runNode (payload) {
+function runNode (payload, allow = ALLOW) {
   writeFileSync(join(tmp, 'policy.json'), JSON.stringify({
-    frozen: [FROZEN], allowCmd: ALLOW, denyPath: DENY_PATH, denyCmd: DENY_CMD, denyTool: DENY_TOOL,
+    frozen: [FROZEN], allowCmd: allow, denyPath: DENY_PATH, denyCmd: DENY_CMD, denyTool: DENY_TOOL,
   }))
   return new Promise((r) => {
     const p = spawn('node', [NODE_COPY], { cwd, stdio: ['pipe', 'ignore', 'ignore'] })
@@ -136,5 +136,28 @@ for (const [i, payload] of CASES.entries()) {
   test(`case ${i}: bash and Node agree on ${payload.slice(0, 72)}`, { skip }, async () => {
     const [b, n] = await Promise.all([runBash(payload), runNode(payload)])
     assert.equal(n, b, `divergence on ${payload}`)
+  })
+}
+
+// --- allowCmd itself carries leading VAR=value assignments ---
+// Regression: `probe` strips leading VAR=value assignments off the incoming
+// command before comparing, but allowCmd (verbatim from --allow-test) was
+// never stripped -- so an allow-cmd like `UV_NO_SYNC=1 uv run pytest -q`
+// could never match anything, including itself. Agreeing on the exit code
+// isn't enough here (both sides agreeing to wrongly block is still a bug),
+// so this also asserts the result is actually an allow (0).
+const ALLOW_VAR = 'UV_NO_SYNC=1 UV_PROJECT_ENVIRONMENT=/tmp/env uv run pytest tests/x.py -q'
+const VAR_ALLOW_CASES = [
+  ALLOW_VAR,                                  // exact match, VARs and all
+  'uv run pytest tests/x.py -q',              // same core command, no VAR prefix
+  'A=1 uv run pytest tests/x.py -q',          // different VAR prefix
+  'UV_NO_SYNC=1 uv run pytest tests/x.py -q', // partial VAR prefix
+]
+for (const [i, cmd] of VAR_ALLOW_CASES.entries()) {
+  const payload = JSON.stringify({ tool_name: 'bash', tool_input: { command: cmd } })
+  test(`var-allow case ${i}: bash and Node agree AND allow ${cmd}`, { skip }, async () => {
+    const [b, n] = await Promise.all([runBash(payload, ALLOW_VAR), runNode(payload, ALLOW_VAR)])
+    assert.equal(n, b, `divergence on ${cmd}`)
+    assert.equal(n, 0, `expected allow (exit 0), got ${n} for ${cmd}`)
   })
 }
