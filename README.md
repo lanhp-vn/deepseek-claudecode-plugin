@@ -1,4 +1,4 @@
-# dsh — a Nouslogic Claude Code plugin
+# dsh — a Claude Code plugin
 
 Claude plans, specifies and verifies. **DeepSeek V4 writes the code** — inside a
 sandbox, behind a guard that refuses to start unless it can prove it blocks.
@@ -31,8 +31,8 @@ Two things here are called `dsh`, and they are not the same:
 ## Install
 
 ```
-/plugin marketplace add nouslogic/deepseek-claudecode-plugin
-/plugin install dsh@nouslogic
+/plugin marketplace add lanhp-vn/deepseek-claudecode-plugin
+/plugin install dsh@dsh
 ```
 
 ```sh
@@ -68,12 +68,7 @@ dsh plugin --profile headless add @deepseek-ai/dsh-hooks-claude-code@0.1.5-rc.2 
 | **A DeepSeek key** | [platform.deepseek.com](https://platform.deepseek.com/api_keys) — pay-as-you-go, **no free tier** |
 | **Runtime deps** | none, deliberately. Nothing to `npm install`, nothing that can go missing |
 
-- The marketplace and repo are private — your GitHub account needs `nouslogic` access.
 - Add failed and you want the clone kept? Set `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` first.
-- **Upgrading from `deepseek-invoke` (1.0.1 or earlier)?** The plugin was renamed
-  in 2.0.0 and a plugin's name is its cache directory, so run
-  `/plugin uninstall deepseek-invoke@nouslogic` first. Your key is untouched — it
-  lives in `~/.deepseek/`, not in the plugin cache, so there is no need to re-run setup.
 
 Full walkthrough, and a prompt that installs and configures all of this for you:
 **[`ONBOARDING.md`](ONBOARDING.md)**.
@@ -103,8 +98,8 @@ including one found by `/dsh:test` itself, on its first ever run.
 Two slash commands, and **the order is load-bearing**:
 
 ```
-/plugin marketplace update nouslogic     # 1. refresh the local clone
-/plugin update dsh@nouslogic             # 2. then install from it
+/plugin marketplace update dsh     # 1. refresh the local clone
+/plugin update dsh@dsh             # 2. then install from it
 ```
 
 `/plugin update` installs from the marketplace **clone on your disk**, not from
@@ -246,4 +241,4 @@ Windows hazards, the test discipline — is in **[`CLAUDE.md`](CLAUDE.md)**.
 node --test plugins/dsh/scripts/*.test.mjs plugins/dsh/skills/_delegation/scripts/*.test.mjs
 ```
 
-Private to Nouslogic.
+MIT — see [`LICENSE`](LICENSE).

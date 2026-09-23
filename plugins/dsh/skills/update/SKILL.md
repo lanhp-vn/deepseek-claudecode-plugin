@@ -31,8 +31,8 @@ Read; do not install. Four independent things:
 
 | What | Where |
 |---|---|
-| installed version | the directory name under `~/.claude/plugins/cache/nouslogic/dsh/` |
-| marketplace version | `version` in `~/.claude/plugins/marketplaces/nouslogic/.claude-plugin/marketplace.json` |
+| installed version | the directory name under `~/.claude/plugins/cache/dsh/dsh/` |
+| marketplace version | `version` in `~/.claude/plugins/marketplaces/dsh/.claude-plugin/marketplace.json` |
 
 The marketplace directory is an ordinary git clone, so `git -C <that path> fetch`
 then `git -C <that path> log --oneline -5 HEAD..@{u}` shows what is waiting.
@@ -44,7 +44,7 @@ load-bearing.** `/plugin update` installs from the marketplace *clone*, not from
 GitHub, so a stale clone reinstalls stale code under an unchanged version
 number. Found on 2026-08-21: the cache held the current tree while the clone sat
 four commits back on a revision whose guard was missing the Windows exit-code
-fix — running `/plugin update dsh@nouslogic` alone would have overwritten
+fix — running `/plugin update dsh@dsh` alone would have overwritten
 working code with a fail-open guard, and both sides would still have said
 `2.0.0`. So: update the marketplace first, then the plugin, and confirm by
 content rather than by version — compare the installed tree against the source
@@ -94,8 +94,8 @@ Cheapest and most reversible first, so a failure has the smallest blast radius.
 the two lines to type, in this order:
 
 ```
-/plugin marketplace update nouslogic
-/plugin update dsh@nouslogic
+/plugin marketplace update dsh
+/plugin update dsh@dsh
 ```
 
 (In this session they can prefix a shell command with `!` to run it inline, but

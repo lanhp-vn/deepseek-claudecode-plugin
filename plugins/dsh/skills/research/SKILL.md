@@ -65,7 +65,7 @@ node <plugin-root>/scripts/deepseek-run.mjs -C "$SCRATCH" --web-fetch \
   --max-turns 24 "<the research brief>"
 ```
 
-Resolve `<plugin-root>` with the glob `~/.claude/plugins/cache/nouslogic/dsh/*/`
+Resolve `<plugin-root>` with the glob `~/.claude/plugins/cache/dsh/dsh/*/`
 or use `plugins/dsh/` in a checkout. Do not pass `--allow-test`: research needs
 no shell, and not granting one is cheaper than policing one.
 

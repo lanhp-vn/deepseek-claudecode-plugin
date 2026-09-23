@@ -324,8 +324,8 @@ What is mechanically true already:
 
 The checks, with results:
 
-1. `/plugin marketplace add nouslogic/deepseek-claudecode-plugin`,
-   `/plugin install dsh@nouslogic`, `/dsh:setup`. — **PASS.** Setup reports the
+1. `/plugin marketplace add lanhp-vn/deepseek-claudecode-plugin`,
+   `/plugin install dsh@dsh`, `/dsh:setup`. — **PASS.** Setup reports the
    hook bridge present, the key accepted, both models, and a balance.
 2. Run a `--dry-run` and open the generated `hooks.json`. The command must read
    `node "C:\...\delegation-guard.mjs"`. — **PASS**, with the interpreter named

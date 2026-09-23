@@ -24,7 +24,7 @@ node <plugin-root>/scripts/dsh-doctor.mjs
 ```
 
 `${CLAUDE_PLUGIN_ROOT}` is not set in an ordinary shell. Resolve the plugin root
-once with a glob — `~/.claude/plugins/cache/nouslogic/dsh/*/scripts/` — or, in a
+once with a glob — `~/.claude/plugins/cache/dsh/dsh/*/scripts/` — or, in a
 checkout of this repo, `plugins/dsh/scripts/`. Then use the absolute path; that
 works identically in bash and PowerShell.
 

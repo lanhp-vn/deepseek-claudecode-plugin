@@ -51,7 +51,7 @@ have a habit of typing `-m pro`, drop it — see "One model" below for why.
 
 `${CLAUDE_PLUGIN_ROOT}` is not set in an ordinary shell, so when running these
 through Bash resolve the cache path instead:
-`~/.claude/plugins/cache/nouslogic/dsh/*/scripts/`.
+`~/.claude/plugins/cache/dsh/dsh/*/scripts/`.
 
 Setup, once per machine: `/dsh:setup`. The key is never printed — every
 message shows a masked fingerprint.

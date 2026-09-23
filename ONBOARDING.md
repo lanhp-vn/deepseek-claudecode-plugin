@@ -1,6 +1,6 @@
 # Onboarding: the `dsh` plugin
 
-For a Nouslogic teammate setting this up on a new machine.
+A step-by-step walkthrough for setting this up on a new machine.
 
 **What you get.** Claude plans, specifies and verifies. DeepSeek V4 writes the
 implementation, inside a filesystem sandbox, under a guard that refuses to start
@@ -40,11 +40,10 @@ beyond `node:` builtins would be broken on your machine.)
 ### 1. The plugin
 
 ```
-/plugin marketplace add nouslogic/deepseek-claudecode-plugin
-/plugin install dsh@nouslogic
+/plugin marketplace add lanhp-vn/deepseek-claudecode-plugin
+/plugin install dsh@dsh
 ```
 
-Both are private, so your GitHub account needs access to the `nouslogic` org.
 If the marketplace add fails and you want the clone kept for inspection, set
 `CLAUDE_CODE_PLUGIN_KEEP_MARKETPLACE_ON_FAILURE=1` first.
 
@@ -96,7 +95,7 @@ or directly. `$CLAUDE_PLUGIN_ROOT` is only set inside a plugin command, **not**
 in an ordinary shell, so use the cache path there:
 
 ```sh
-DS=~/.claude/plugins/cache/nouslogic/dsh/*/scripts
+DS=~/.claude/plugins/cache/dsh/dsh/*/scripts
 node $DS/setup-deepseek.mjs --key sk-... --dsh
 ```
 
@@ -109,7 +108,7 @@ The key is never printed; every message shows a masked fingerprint.
 ### 5. Verify before you spend anything
 
 ```sh
-node ~/.claude/plugins/cache/nouslogic/dsh/*/scripts/setup-deepseek.mjs --verify-only
+node ~/.claude/plugins/cache/dsh/dsh/*/scripts/setup-deepseek.mjs --verify-only
 ```
 
 Doctor mode. It reports Node's version and platform, which shell dsh will run
@@ -140,8 +139,8 @@ you, against the repo you are actually in.
 Two slash commands, in this order:
 
 ```
-/plugin marketplace update nouslogic     # 1. refresh the local clone
-/plugin update dsh@nouslogic             # 2. then install from it
+/plugin marketplace update dsh     # 1. refresh the local clone
+/plugin update dsh@dsh             # 2. then install from it
 ```
 
 `/plugin update` installs from the marketplace **clone on your disk**, not from
@@ -211,8 +210,8 @@ needs the Claude Code slash-command interface (which you cannot invoke).
 1. Check prerequisites and report versions: `node --version` (need
    `^22.19.0 || >=24`), `claude --version` (need >= 2.1.233), `git --version`.
    Stop and tell me if any is missing or too old.
-2. Tell me to run `/plugin marketplace add nouslogic/deepseek-claudecode-plugin`
-   and then `/plugin install dsh@nouslogic`. Wait for me to confirm.
+2. Tell me to run `/plugin marketplace add lanhp-vn/deepseek-claudecode-plugin`
+   and then `/plugin install dsh@dsh`. Wait for me to confirm.
 3. Check whether `dsh` is on PATH. If not, tell me to run
    `npm i -g @deepseek-ai/dsh@0.1.5-rc.2` and `npm i -g pnpm`, and warn that npm
    may install to a directory that is not on PATH. The version is pinned, not a
@@ -233,13 +232,13 @@ needs the Claude Code slash-command interface (which you cannot invoke).
    transcript and that rotating it is cheap.
 6. Run the doctor yourself and show me its output. Note $CLAUDE_PLUGIN_ROOT is
    NOT set in an ordinary shell, so resolve the cache path:
-       node ~/.claude/plugins/cache/nouslogic/dsh/*/scripts/setup-deepseek.mjs --verify-only
+       node ~/.claude/plugins/cache/dsh/dsh/*/scripts/setup-deepseek.mjs --verify-only
    Confirm: hook bridge present, key accepted, a non-zero balance, and which
    shell dsh will run hooks through on this platform.
 7. Prove the plugin's own code is sound before trusting it. BOTH script
    directories -- the second holds hooks-matcher.test.mjs, which is what catches
    a guard rule going silently off:
-       C=$(echo ~/.claude/plugins/cache/nouslogic/dsh/*)
+       C=$(echo ~/.claude/plugins/cache/dsh/dsh/*)
        node --test "$C"/scripts/*.test.mjs "$C"/skills/_delegation/scripts/*.test.mjs
    Report the pass/fail counts. Anything other than 0 failures is a stop. A large
    skipped count is expected: the differential cases need both guard
